@@ -29,7 +29,7 @@ The repository remains intentionally compact. If code and design diverge, update
 The current repository does not implement:
 
 - browser automation outside the popup/content-script/service-worker model
-- end-to-end browser-run integration tests in real Chrome or Firefox
+- end-to-end browser-run integration tests in real Firefox
 - a project-hosted proxy or cloud backend for Mouser / SamacSys Firefox support
 - a broader application-layer architecture beyond the existing file split
 
@@ -205,6 +205,8 @@ The test suite remains the primary regression net for:
 - EasyEDA conversion behavior
 - repository governance and footer discipline
 
+`tests/headless-qa/` adds an opt-in Windows headless integration harness. Pinned Puppeteer and its Chrome for Testing binary load the actual unpacked extension in an isolated profile, activate the product tab, and open its real action popup. The harness records independent page fields, real content-script context, popup preview states and completed browser downloads in atomic per-stage evidence. KiCad 10 CLI and Python render all symbol/footprint entries and temporary inspection boards with unchanged model references; a known-good relative-path fixture calibrates assembly rendering. Generated assets, profiles and evidence remain in gitignored output. These tools do not change production behavior or repair export defects.
+
 ## 5. Core data flow
 
 ### 5.1 Detect the current part
@@ -352,9 +354,10 @@ The test suite remains the primary regression net for:
 
 - `src/kicad_converter.js` should stay the main unit-test target for pure conversion rules.
 - `src/content_script.js` should stay small enough to test through DOM fixtures and message mocks.
-- `src/popup.js` should be tested with DOM fixtures and mocked browser APIs rather than real extension runs.
+- `src/popup.js` regression tests use DOM fixtures and mocked browser APIs. The optional headless QA harness separately exercises its real action popup and downloads in Chrome for Testing.
 - `src/service_worker_runtime.js` should be tested with mocked browser APIs, mocked fetch, mocked archive extraction, and controlled converter stubs.
 - The current Vitest/Vite/jsdom test stack requires Node `20.19.0+`, `22.13.0+`, or `24+`.
+- Optional Puppeteer browser QA requires Node `22.13.0+` or `24+`, Python `3.10+` with Pillow, and KiCad `10.x`. Deterministic JS smoke checks join normal Vitest validation; Python smoke checks run through `npm run qa:smoke`. Live service blockers and fixture renders remain distinct from successful live end-to-end validation.
 - Production source should not be refactored solely to make tests easier; harnesses should adapt to the existing code shape.
 - Local and CI validation share `npm run validate`, which runs ESLint, Vitest, `npm audit --audit-level=moderate`, and `git diff --check`.
 - GitHub Actions runs validation with `npm ci` on Node `20.19.0`, `22.13.0`, and `24.x`.

@@ -27,7 +27,7 @@ const GOVERNANCE_FILES = [
   "docs/deviations.md"
 ];
 
-const SKIPPED_REPOSITORY_DIRS = new Set([".git", "coverage", "node_modules"]);
+const SKIPPED_REPOSITORY_DIRS = new Set([".git", "coverage", "node_modules", ".qa-output", "__pycache__"]);
 
 const CONVENTIONAL_ROOT_FILES = new Set([
   ".gitignore",

@@ -2,6 +2,8 @@ easyECADDownloader.crx
 easyECADDownloader.zip
 node_modules/
 coverage/
+.qa-output/
+__pycache__/
 docs/easy-ecad-downloader-architecture.drawio
 docs/professional-grade-review.md
 *.psd

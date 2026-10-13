@@ -40,6 +40,7 @@ export default [
   {
     ignores: [
       "coverage/**",
+      ".qa-output/**",
       "easyECADDownloader.crx",
       "easyECADDownloader.zip",
       "node_modules/**"
