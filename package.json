@@ -12,7 +12,8 @@
     "test": "vitest run",
     "qa:preflight": "node tests/headless-qa/preflight.js",
     "qa:run": "node tests/headless-qa/run.js",
-    "qa:smoke": "vitest run tests/headless-qa/smoke.test.js && python -m unittest discover -s tests/headless-qa -p test_render.py",
+    "qa:auth": "node tests/headless-qa/auth.js",
+    "qa:smoke": "vitest run tests/headless-qa && python -m unittest discover -s tests/headless-qa -p test_render.py",
     "validate": "npm run lint && npm test && npm run audit && git diff --check"
   },
   "devDependencies": {

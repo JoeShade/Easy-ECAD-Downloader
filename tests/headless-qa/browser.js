@@ -5,19 +5,24 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import puppeteer from "puppeteer";
-import { issue, poll, repoRoot, redact } from "./common.js";
+import { containsProtectedSecret, issue, repoRoot, redact, retryObservation } from "./common.js";
+import { attachDiagnostics } from "./diagnostics.js";
+import { symbolDownloadEvidence } from "./download_accounting.js";
+import { provisionSamacsysCredentials } from "./credentials.js";
 
-export async function launchExtension(run, timeout) {
+export async function launchExtension(run, timeout, credentials = null, controlledSignals = false) {
   const profile = path.join(run.dir, "browser", "profile");
-  let browser;
+  let browser, diagnostics;
   try {
     await fs.mkdir(path.join(profile, "Default"), { recursive: true });
     await fs.writeFile(path.join(profile, "Default/Preferences"), JSON.stringify({ download: {
       default_directory: path.join(run.dir, "downloads"), prompt_for_download: false, directory_upgrade: true
     } }));
     browser = await puppeteer.launch({ headless: true, pipe: true, enableExtensions: true,
+      handleSIGINT: !controlledSignals, handleSIGTERM: !controlledSignals, handleSIGHUP: !controlledSignals,
       userDataDir: profile, timeout, protocolTimeout: Math.max(timeout, 180000),
       defaultViewport: { width: 1280, height: 900 } });
+    diagnostics = await attachDiagnostics(browser, run);
     if (typeof browser.installExtension !== "function") throw issue("Installed Puppeteer lacks installExtension");
     const id = await browser.installExtension(repoRoot);
     const target = await browser.waitForTarget(target => target.type() === "service_worker" &&
@@ -33,13 +38,14 @@ export async function launchExtension(run, timeout) {
       await chrome.storage.local.set({ downloadIndividually: false, libraryDownloadRoot: "easyECADDownloader" });
       return chrome.storage.local.get(["downloadIndividually", "libraryDownloadRoot"]);
     });
+    const authentication = await provisionSamacsysCredentials(worker, credentials);
     // CDP 'allow' overrides chrome.downloads filenames for data URLs. Profile
     // preferences retain the extension's grouped paths and conflict semantics.
     await run.log("browser-launched", { chrome: await browser.version(), id, api, settings,
       headless: true, pipe: true, executable: await puppeteer.executablePath(), args: browser.process()?.spawnargs.slice(1) });
-    return { browser, worker, id, settings, profile };
+    return { browser, worker, id, settings, profile, diagnostics, authentication };
   } catch (error) {
-    if (browser) await closeBrowser({ browser, profile }, run);
+    if (browser) await closeBrowser({ browser, profile, diagnostics }, run);
     else await fs.rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     throw issue(`Browser/extension preflight failed: ${redact(error.message)}`, "environment");
   }
@@ -50,16 +56,31 @@ export async function closeBrowser(context, run) {
   const processHandle = context.browser.process();
   let timer;
   try {
-    await Promise.race([context.browser.close(), new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error("Browser close timed out")), 10000);
-    })]);
-  } catch (error) {
-    processHandle?.kill();
-    await run.log("browser-close-error", { message: error.message });
+    if (context.worker) {
+      await Promise.race([context.worker.evaluate(() => chrome.storage.session.clear()), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Session cleanup timed out")), 5000);
+      })]).catch(error => run.log("session-cleanup-error", { message: error.message }));
+      clearTimeout(timer);
+    }
+    await context.diagnostics?.close().catch(error => run.log("diagnostic-cleanup-error", { message: error.message }));
+    if (context.diagnostics) {
+      run.result.diagnostics = context.diagnostics.summary();
+      await run.save();
+    }
   } finally {
     clearTimeout(timer);
-    await fs.rm(context.profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
-      .catch(error => run.log("profile-cleanup-error", { message: error.message }));
+    try {
+      await Promise.race([context.browser.close(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Browser close timed out")), 10000);
+      })]);
+    } catch (error) {
+      processHandle?.kill();
+      await run.log("browser-close-error", { message: error.message });
+    } finally {
+      clearTimeout(timer);
+      await fs.rm(context.profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+        .catch(error => run.log("profile-cleanup-error", { message: error.message }));
+    }
   }
 }
 
@@ -91,14 +112,10 @@ export async function openPopup(context, page, timeout) {
 }
 
 export async function partContext(context, tabId, timeout, retries) {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await poll(() => context.worker.evaluate(id => new Promise(resolve => {
-        chrome.tabs.sendMessage(id, { type: "GET_PART_CONTEXT" }, response =>
-          resolve({ response: response || null, error: chrome.runtime.lastError?.message || null }));
-      }), tabId), value => !value.error, Math.max(1, Math.floor(timeout / (retries + 1))));
-    } catch (error) { if (attempt === retries) return error.last || { response: null, error: error.message }; }
-  }
+  return retryObservation(() => context.worker.evaluate(id => new Promise(resolve => {
+    chrome.tabs.sendMessage(id, { type: "GET_PART_CONTEXT" }, response =>
+      resolve({ response: response || null, error: chrome.runtime.lastError?.message || null }));
+  }), tabId), timeout, retries);
 }
 
 export async function productEvidence(page, httpStatus) {
@@ -122,7 +139,7 @@ export async function productEvidence(page, httpStatus) {
     const fields = [];
     for (const node of document.querySelectorAll("dt,tr")) {
       const label = (node.matches("dt") ? node.textContent : node.querySelector("th,td")?.textContent)?.trim();
-      if (!label || !/^(?:mfr\.?|manufacturer|brand|mpn|sku|lcsc|jlcpcb|mouser|farnell|newark|order code|part number)/i.test(label)) continue;
+      if (!label || !/^(?:mfr\.?|manufacturer|brand|mpn|sku|lcsc|jlcpcb|mouser|farnell|element14|newark|order code|part number)/i.test(label)) continue;
       const value = node.matches("dt") ? node.nextElementSibling?.textContent :
         [...node.querySelectorAll("td")].slice(node.querySelector("th") ? 0 : 1).map(x => x.textContent).join(" ");
       fields.push({ label: label.slice(0, 120), value: value?.trim().slice(0, 300) });
@@ -154,15 +171,30 @@ export async function popupState(popup) {
   });
 }
 
+export async function safeScreenshot(surface, run, filename, stage, options = {}) {
+  const text = await surface.evaluate(element => {
+    const root = element || document.body;
+    return [root?.textContent || "", ...[...(root?.querySelectorAll("input,textarea") || [])]
+      .map(input => input.value)].join("\n");
+  });
+  if (containsProtectedSecret(text)) {
+    await run.check(stage, "REVIEW", "Screenshot omitted because its DOM contains an entered session secret",
+      { name: "evidence.screenshotPrivacy", evidence: filename, produced: false });
+    return false;
+  }
+  await surface.screenshot({ path: path.join(run.dir, filename), ...options });
+  return true;
+}
+
 export async function capturePreviews(popup, run, timeout) {
   for (const id of ["symbolPreview", "footprintPreview"]) {
-    let timedOut = false;
+    let timedOut = false, timeoutError = null;
     try {
       await popup.waitForFunction(id => {
         const image = document.getElementById(id), fallback = document.getElementById(`${id}Fallback`);
         return (image?.getAttribute("src") && image.complete) || (fallback && fallback.textContent !== "Loading...");
       }, { timeout }, id);
-    } catch { timedOut = true; }
+    } catch (error) { timedOut = true; timeoutError = redact(error.message); }
     const state = await popup.evaluate(async id => {
       const image = document.getElementById(id), fallback = document.getElementById(`${id}Fallback`);
       let decoded = false;
@@ -176,20 +208,29 @@ export async function capturePreviews(popup, run, timeout) {
     const filename = `browser/${id}.png`;
     const element = await popup.$(`#${id}`);
     const box = state.visible ? element : await popup.$(`#${id}Fallback`);
-    await box.screenshot({ path: path.join(run.dir, filename) });
+    await safeScreenshot(box, run, filename, "previews");
     await run.check("previews", state.decoded ? "PASS" : timedOut ? "BLOCKED" : "REVIEW",
       state.decoded ? "Preview image decoded with nonzero dimensions" : "Preview unavailable or still loading",
-      { id, ...state, timedOut, evidence: filename });
+      { id, ...state, timedOut, error: timeoutError, category: timedOut ? "harness" : "preview-observation",
+        cause: timedOut ? "harness timeout" : "unknown", evidence: filename });
   }
-  await popup.screenshot({ path: path.join(run.dir, "browser/popup.png"), fullPage: true });
+  await safeScreenshot(popup, run, "browser/popup.png", "previews", { fullPage: true });
   await run.check("previews", "REVIEW", "Visual correctness requires inspection of saved preview images");
 }
 
 export async function downloadItems(context) {
-  return context.worker.evaluate(async () => (await chrome.downloads.search({})).map(item => ({
+  const items = await context.worker.evaluate(async () => (await chrome.downloads.search({})).map(item => ({
     id: item.id, filename: item.filename, state: item.state, error: item.error,
-    bytesReceived: item.bytesReceived, totalBytes: item.totalBytes
+    bytesReceived: item.bytesReceived, totalBytes: item.totalBytes,
+    startTime: item.startTime, endTime: item.endTime,
+    byExtensionId: item.byExtensionId,
+    symbolDataUrl: /\.kicad_sym$/i.test(item.filename) && item.url?.startsWith("data:") ? item.url : null
   })));
+  return items.map(item => {
+    const evidence = symbolDownloadEvidence(item);
+    delete item.symbolDataUrl;
+    return { ...item, ...evidence };
+  });
 }
 
 /*

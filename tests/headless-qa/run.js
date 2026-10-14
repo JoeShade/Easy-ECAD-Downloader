@@ -6,14 +6,18 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { atomicJson, accountDownloads, command, createRun, issue, now, options, poll, redact, repoRoot } from "./common.js";
 import { activateProduct, capturePreviews, closeBrowser, downloadItems, launchExtension,
-  openPopup, partContext, popupState, productEvidence } from "./browser.js";
+  openPopup, partContext, popupState, productEvidence, safeScreenshot } from "./browser.js";
+import { identifierChecks } from "./identifiers.js";
+import { classifyFailure } from "./diagnostics.js";
+import { assetTypes, coverageSummary } from "./coverage.js";
+import { withSamacsysCredentials } from "./credentials.js";
 
 export async function metadata(run, requestedUrl = null) {
   const manifest = JSON.parse(await fs.readFile(path.join(repoRoot, "manifest.json"), "utf8"));
   const puppeteer = JSON.parse(await fs.readFile(path.join(repoRoot, "node_modules/puppeteer/package.json"), "utf8"));
   const commit = await command("git", ["rev-parse", "HEAD"], { log: run.log });
   const dirty = await command("git", ["status", "--porcelain"], { log: run.log });
-  const data = { schemaVersion: 1, id: run.result.id, kind: run.result.kind, requestedUrl,
+  const data = { schemaVersion: 2, id: run.result.id, kind: run.result.kind, requestedUrl,
     startedAt: run.result.startedAt, node: process.version, platform: process.platform,
     extension: { version: manifest.version, directory: repoRoot }, puppeteer: puppeteer.version,
     repository: { commit: commit.stdout.trim(), dirty: Boolean(dirty.stdout.trim()) } };
@@ -36,25 +40,11 @@ export async function pythonPreflight(run, opts, meta) {
   return record.code === 0;
 }
 
-async function compareIdentifiers(run, detected, reference) {
-  const candidates = [...reference.products.map(value => value.mpn).filter(Boolean),
-    ...reference.fields.filter(value => /^(mfr\.? (part|no)|manufacturer part|mpn)/i.test(value.label)).map(value => value.value)].filter(Boolean);
-  const unique = [...new Set(candidates.map(value => value.trim()))];
-  if (unique.length === 1) {
-    await run.check("detection", detected?.manufacturerPartNumber === unique[0] ? "PASS" : "FAIL",
-      "Extension manufacturer part number agrees with independent page field",
-      { expected: unique[0], actual: detected?.manufacturerPartNumber || null, category: "extension-observation" });
-  } else await run.check("detection", "REVIEW", "Independent manufacturer part number missing or ambiguous", { candidates: unique });
-  const sources = reference.fields.filter(value => /^(lcsc|jlcpcb|mouser|farnell|newark).*(part|no)|^order code/i.test(value.label));
-  if (detected?.provider === "easyedaLcsc") {
-    for (const product of reference.products) if (/^C\d+$/.test(product.sku || "")) sources.push({ label: "Product JSON-LD sku", value: product.sku });
+async function compareIdentifiers(run, detected, reference, popup = null) {
+  for (const check of identifierChecks(detected, reference, popup, run.result.stages.detection.website)) {
+    if (popup && !check.name.startsWith("popup.")) continue;
+    await run.check(popup ? "popup" : "detection", check.outcome, check.establishes, check);
   }
-  const sourceValues = [...new Set(sources.map(field => field.value).filter(Boolean))];
-  if (sourceValues.length === 1) {
-    await run.check("detection", sourceValues[0] === detected?.sourcePartNumber ? "PASS" : "FAIL",
-      "Extension distributor identifier agrees with independent page field",
-      { expected: sourceValues[0], actual: detected?.sourcePartNumber, category: "extension-observation" });
-  } else await run.check("detection", "REVIEW", "Distributor identifier needs independent page-field review", { fields: sources });
 }
 
 async function collectDownloads(context, popup, run, opts) {
@@ -90,6 +80,8 @@ async function collectDownloads(context, popup, run, opts) {
   if ((await popupState(popup)).downloadDisabled) throw issue("Popup download button is disabled", "extension-observation");
   let response = null;
   try {
+    run.result.stages.downloads.clickAttempted = true;
+    await run.save();
     await popup.click("#downloadButton");
     await poll(async () => {
       response = await popup.evaluate(() => window.__qaExport);
@@ -99,26 +91,30 @@ async function collectDownloads(context, popup, run, opts) {
       items.every(item => ["complete", "interrupted"].includes(item.state)), opts["download-timeout"]);
   } finally {
     const items = await downloadItems(context);
-    const rows = await accountDownloads(items, path.join(run.dir, "downloads"));
-    Object.assign(run.result.stages.downloads, { response: response ? JSON.parse(redact(JSON.stringify(response))) : null,
-      files: rows, popup: await popupState(popup) });
+    const accounting = await accountDownloads(items, path.join(run.dir, "downloads"), { settings: context.settings, extensionId: context.id });
+    Object.assign(run.result.stages.downloads, { response: redact(response),
+      ...accounting, popup: redact(await popupState(popup)) });
     await run.save();
-    await popup.screenshot({ path: path.join(run.dir, "browser/popup-after-download.png"), fullPage: true });
-    for (const row of rows) await run.check("downloads", row.verified ? "PASS" : "FAIL",
-      row.verified ? "Browser download completed and nonempty file exists inside this run" : "Download interrupted, absent, empty or outside run", row);
+    await safeScreenshot(popup, run, "browser/popup-after-download.png", "downloads", { fullPage: true });
+    for (const event of accounting.events) await run.check("downloads", event.outcome,
+      "Browser download event retained; superseded contents assessed through final asset", { name: "download.event", ...event });
+    for (const asset of accounting.assets) {
+      await run.check("downloads", asset.outcome, "Final filesystem asset verified independently of historical writes", { name: "download.finalAsset", ...asset });
+      if (asset.completeness !== "NOT_APPLICABLE") await run.check("downloads", asset.completeness,
+        "Final symbol library retains known export entries; unavailable expectations do not establish completeness", { name: "download.symbolCompleteness", ...asset });
+      if (asset.ordering.includes("unknown") || asset.ordering.startsWith("UNKNOWN")) await run.check("downloads", "REVIEW",
+        "Final write identity/order unavailable; equivalent content may still verify the final file", { name: "download.writeOrder", relativePath: asset.relativePath, ordering: asset.ordering });
+    }
   }
   const state = run.result.stages.downloads;
   if (!response?.ok) {
     const error = response?.error || state.popup.status || "Export did not succeed";
-    const blocked = /sign.in|unauthor|401|403|429|captcha|fetch|network/i.test(error);
-    await run.check("downloads", blocked ? "BLOCKED" : "FAIL", redact(error),
-      { category: blocked ? "external-service" : "extension-observation" });
+    const finding = classifyFailure(error, { category: "extension-observation" });
+    await run.check("downloads", finding.outcome, redact(error), finding);
   }
   for (const warning of response?.warnings || []) await run.check("downloads", "REVIEW", redact(warning), { category: "extension-observation" });
-  const types = { downloadSymbol: /\.kicad_sym$/i, downloadFootprint: /\.kicad_mod$/i,
-    downloadModel: /\.(?:step|stp|wrl)$/i, downloadDatasheet: /\.(?:pdf|html)$/i };
   for (const id of selected) {
-    const found = state.files.some(file => file.verified && types[id].test(file.filename));
+    const found = state.assets.some(file => file.verified && assetTypes[id].test(file.filename));
     await run.check("downloads", found ? "PASS" : "REVIEW", found ? "Selected asset category has a completed file" :
       "No completed file for selected asset category; upstream availability needs review", { option: id });
   }
@@ -128,27 +124,41 @@ export async function finish(run) {
   run.result.finishedAt = now();
   const outcomes = Object.values(run.result.stages).flatMap(stage => stage.checks.map(check => check.outcome));
   run.result.outcomes = [...new Set(outcomes)];
+  run.result.coverage = coverageSummary(run.result, run.result.stages.rendering.details);
   await run.save();
   console.log(JSON.stringify({ execution: run.result.execution, outcomes: run.result.outcomes, evidence: run.dir }));
   process.exitCode = outcomes.includes("FAIL") ? 1 : outcomes.includes("BLOCKED") ? 2 : 0;
 }
 
 async function main() {
-  const opts = options({ url: { type: "string" } });
+  const opts = options({ url: { type: "string" }, "samacsys-login": { type: "boolean", default: false } });
   if (!opts.url) throw new Error("--url is required");
   const url = new URL(opts.url);
   if (!["https:", "http:"].includes(url.protocol) || url.username || url.password ||
     [...url.searchParams.keys()].some(key => /token|password|auth|session|signature/i.test(key))) {
     throw new Error("Supply a public product URL without session credentials");
   }
+  await withSamacsysCredentials(opts["samacsys-login"], credentials => executeRun(opts, credentials));
+}
+
+async function executeRun(opts, credentials) {
   const run = await createRun(opts.out, opts.id);
   const meta = await metadata(run, opts.url);
-  let context, popup, renderReady = false;
+  let context, popup, renderReady = false, interrupted = false;
+  const interrupt = () => {
+    interrupted = true;
+    if (context) context.browser.close().catch(() => context.browser.process()?.kill());
+  };
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, interrupt);
   try {
     await run.stage("environment", async () => {
       renderReady = await pythonPreflight(run, opts, meta);
-      context = await launchExtension(run, opts.timeout);
-      Object.assign(meta, { chrome: await context.browser.version(), extensionId: context.id, effectiveSettings: context.settings });
+      context = await launchExtension(run, opts.timeout, credentials, true);
+      if (credentials) { credentials.username = ""; credentials.password = ""; }
+      credentials = null;
+      if (interrupted) throw issue("Run interrupted by terminal", "harness");
+      Object.assign(meta, { chrome: await context.browser.version(), extensionId: context.id,
+        effectiveSettings: context.settings, authentication: context.authentication });
       await atomicJson(path.join(run.dir, "metadata.json"), meta);
       await run.check("environment", "PASS", "Headless Chrome loaded actual extension and live service worker in isolated profile");
     });
@@ -159,7 +169,8 @@ async function main() {
       try { response = await page.goto(opts.url, { waitUntil: "domcontentloaded", timeout: opts.timeout }); }
       catch (error) {
         Object.assign(run.result.stages.navigation, { requestedUrl: opts.url, finalUrl: redact(page.url()) });
-        throw issue(`Navigation failed: ${redact(error.message)}`, "external-service");
+        const finding = classifyFailure(error.message, { category: error.name === "TimeoutError" ? "harness" : "browser-observation" });
+        throw issue(`Navigation failed: ${redact(error.message)}`, finding.category, finding.outcome);
       }
       let fingerprint, stableSince = Date.now();
       reference = await poll(async () => {
@@ -170,23 +181,24 @@ async function main() {
       }, value => ["ACCESS_BLOCKED", "LOGIN", "SEARCH"].includes(value.classification) ||
         (value.readyState === "complete" && Date.now() - stableSince >= 2000), opts.timeout)
         .catch(async () => productEvidence(page, response?.status()));
-      reference = JSON.parse(redact(JSON.stringify(reference)));
+      reference = redact(reference);
       Object.assign(run.result.stages.navigation, { requestedUrl: opts.url, finalUrl: redact(page.url()), reference });
       Object.assign(meta, { finalUrl: redact(page.url()) });
       await atomicJson(path.join(run.dir, "metadata.json"), meta);
       await atomicJson(path.join(run.dir, "browser/product-reference.json"), reference);
       if (["ACCESS_BLOCKED", "LOGIN", "SEARCH"].includes(reference.classification)) {
-        throw issue(`Resolved page is ${reference.classification}; no authentication or access-control bypass attempted`, "external-service");
+        throw issue(`Resolved page is ${reference.classification}; no authentication or access-control bypass attempted`,
+          reference.classification === "SEARCH" ? "page-context" : "external-access");
       }
       await run.check("navigation", reference.classification === "PRODUCT" ? "PASS" : "REVIEW",
         "Product-page classification from independent DOM fields", { classification: reference.classification });
-      if (reference.classification === "PRODUCT") await page.screenshot({ path: path.join(run.dir, "browser/product.png"), fullPage: true });
+      if (reference.classification === "PRODUCT") await safeScreenshot(page, run, "browser/product.png", "navigation", { fullPage: true });
     });
     await run.stage("detection", async () => {
       const tab = await activateProduct(context, page);
       const detected = await partContext(context, tab.id, opts.timeout, opts.retries);
       Object.assign(run.result.stages.detection, { website: new URL(page.url()).hostname,
-        partContext: detected.response, error: detected.error,
+        partContext: redact(detected.response), error: redact(detected.error), attempts: redact(detected.attempts),
         provider: detected.response?.provider, distributorPartNumber: detected.response?.sourcePartNumber,
         manufacturerPartNumber: detected.response?.manufacturerPartNumber,
         manufacturerName: detected.response?.lookup?.manufacturerName || null });
@@ -199,6 +211,7 @@ async function main() {
       await popup.waitForFunction(() => document.getElementById("manufacturerPartNumber").textContent !== "Searching...", { timeout: opts.timeout });
       run.result.stages.popup.dom = await popupState(popup);
       await run.check("popup", "PASS", "Chrome created the actual action popup, verified by extension popup view type");
+      await compareIdentifiers(run, run.result.stages.detection.partContext, reference, run.result.stages.popup.dom);
     });
     await run.stage("previews", () => capturePreviews(popup, run, opts.timeout));
     run.result.stages.popup.dom = await popupState(popup);
@@ -207,18 +220,23 @@ async function main() {
   } catch (error) {
     run.result.execution = "FAILED";
     await run.log("integration-stopped", { message: error.message });
-  } finally { await closeBrowser(context, run); }
-  const files = run.result.stages.downloads.files || [];
-  if (renderReady && files.some(file => file.verified && /\.(kicad_mod|kicad_sym)$/.test(file.filename))) {
+  } finally {
+    try { await closeBrowser(context, run); }
+    finally { for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.off(signal, interrupt); }
+  }
+  const files = run.result.stages.downloads.assets || [];
+  if (!interrupted && renderReady && files.some(file => file.verified && /\.(kicad_mod|kicad_sym|step|stp|wrl)$/i.test(file.filename))) {
     try {
       await run.stage("rendering", async () => {
         const args = ["tests/headless-qa/render.py", "--input", path.join(run.dir, "downloads"),
           "--output", path.join(run.dir, "renders/assets"), "--project", path.join(run.dir, "inspection-project"),
+          "--inventory", path.join(run.dir, "result.json"),
           "--timeout", String(opts["render-timeout"] / 1000)];
         if (opts["kicad-cli"]) args.push("--kicad-cli", opts["kicad-cli"]);
         await command(opts.python, args, { timeout: opts["render-timeout"] * 30, log: run.log });
         const rendered = JSON.parse(await fs.readFile(path.join(run.dir, "renders/assets/render-result.json"), "utf8"));
         run.result.stages.rendering.report = "renders/assets/render-result.json";
+        run.result.stages.rendering.details = { coverage: rendered.coverage, models: rendered.models };
         for (const check of rendered.checks) await run.check("rendering", check.outcome, check.establishes, check);
         if (rendered.execution !== "COMPLETED") throw issue("Renderer execution did not complete");
       });

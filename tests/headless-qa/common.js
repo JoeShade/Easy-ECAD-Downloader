@@ -6,17 +6,63 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { spawn } from "node:child_process";
+export { accountDownloads } from "./download_accounting.js";
 
 export const repoRoot = path.resolve(import.meta.dirname, "../..");
 export const stageNames = ["environment", "navigation", "detection", "popup", "previews", "downloads", "rendering"];
 export const now = () => new Date().toISOString();
 
-export function redact(value) {
-  return String(value)
-    .replace(/\b(?:data|blob):[^\s"']+/gi, "[image/blob omitted]")
-    .replace(/\b(?:Basic|Bearer)\s+[A-Za-z0-9+/=._-]+/gi, "[authorization omitted]")
-    .replace(/([?&](?:token|key|password|auth|session|signature|code)[^=\s]*=)[^&\s]+/gi, "$1[redacted]")
-    .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[email omitted]");
+const secretKey = /(?:authorization|password|passwd|user[_-]?name|credential|cookie|phpsessid|sess(?:ion)?[_-]?(?:id|key|secret)$|^session$|^sid$|(?:^|[_-])auth(?:$|[_-])|token|api[_-]?key|signature)/i;
+const sessionSecrets = new Set();
+
+export function protectSecrets(values) {
+  const secrets = new Set(values.filter(Boolean).flatMap(value => [value, encodeURIComponent(value),
+    JSON.stringify(value).slice(1, -1)]));
+  sessionSecrets.add(secrets);
+  return () => { sessionSecrets.delete(secrets); secrets.clear(); };
+}
+
+function maskSessionSecrets(text) {
+  const secrets = [...sessionSecrets].flatMap(values => [...values]).sort((a, b) => b.length - a.length);
+  for (const secret of secrets) text = text.replaceAll(secret, "[redacted]");
+  return text;
+}
+
+export function containsProtectedSecret(text) {
+  return [...sessionSecrets].some(values => [...values].some(value => text.includes(value)));
+}
+
+export function redact(value, seen = new WeakSet()) {
+  if (typeof value === "string") {
+    return maskSessionSecrets(value.replace(/\bdata:[^,\r\n]*,[^\r\n]+/gi, "[image/blob omitted]")
+      .replace(/\bblob:(?:[a-z][a-z0-9+.-]*:|null\/)[^\s"'<>]+/gi, "[image/blob omitted]")
+      .replace(/https?:\/\/[^\s"'<>\\]+/gi, match => {
+      try {
+        const url = new URL(match);
+        const hasUserInfo = Boolean(url.username || url.password);
+        url.username = ""; url.password = "";
+        let changed = hasUserInfo;
+        for (const key of url.searchParams.keys()) {
+          if (secretKey.test(key) || /^(key|code|auth)$/i.test(key)) {
+            url.searchParams.set(key, "[redacted]"); changed = true;
+          }
+        }
+        return changed ? url.href : match;
+      } catch { return "[invalid URL omitted]"; }
+    }).replace(/\b(?:set-cookie|cookie)["']?\s*:\s*[^\r\n]+/gi, "[cookie omitted]")
+      .replace(/\b(?:Basic|Bearer)\s+[A-Za-z0-9+/=._-]+/gi, "[authorization omitted]")
+      .replace(/\b(password|token|session|authorization)\s*[:=]\s*[^\s"'<>&,;]+/gi, "$1=[redacted]")
+      .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[email omitted]"));
+  }
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return "[circular value omitted]";
+  seen.add(value);
+  const output = Array.isArray(value) ? value.map(item => redact(item, seen)) :
+    Object.fromEntries(Object.entries(value).map(([key, item]) => [maskSessionSecrets(key), secretKey.test(key) ? "[redacted]" :
+      typeof item === "string" && item.length > 4096 && /(?:image(?:data|payload|base64)|blob(?:data|payload)?|base64)$/i.test(key) ?
+        "[image/blob omitted]" : redact(item, seen)]));
+  seen.delete(value);
+  return output;
 }
 
 export function options(extra = {}) {
@@ -41,7 +87,7 @@ export function options(extra = {}) {
 
 export async function atomicJson(filename, value) {
   const temporary = `${filename}.${process.pid}.tmp`;
-  await fs.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`);
+  await fs.writeFile(temporary, `${JSON.stringify(redact(value), null, 2)}\n`);
   await fs.rename(temporary, filename);
 }
 
@@ -59,13 +105,13 @@ export async function createRun(out, id, kind = "live") {
   for (const name of ["browser", "downloads", "renders", "inspection-project"]) {
     await fs.mkdir(path.join(dir, name));
   }
-  const result = { schemaVersion: 1, id, kind, startedAt: now(), execution: "RUNNING",
+  const result = { schemaVersion: 2, id, kind, startedAt: now(), execution: "RUNNING",
     stages: Object.fromEntries(stageNames.map(name => [name, { execution: "NOT_RUN", checks: [] }])) };
   const save = () => atomicJson(path.join(dir, "result.json"), result);
   const log = async (event, data = {}) => fs.appendFile(path.join(dir, "execution.log"),
-    `${JSON.stringify({ timestamp: now(), event, data: JSON.parse(redact(JSON.stringify(data))) })}\n`);
+    `${JSON.stringify({ timestamp: now(), event, data: redact(data) })}\n`);
   const check = async (stage, outcome, establishes, details = {}) => {
-    result.stages[stage].checks.push({ outcome, establishes, ...details, timestamp: now() });
+    result.stages[stage].checks.push({ ...details, outcome, establishes, timestamp: now() });
     await save();
   };
   const stage = async (name, action) => {
@@ -75,7 +121,7 @@ export async function createRun(out, id, kind = "live") {
     try { await action(); state.execution = "COMPLETED"; }
     catch (error) {
       state.execution = "FAILED";
-      await check(name, error.outcome || "FAIL", redact(error.message), { category: error.category || "harness" });
+      await check(name, error.outcome || "FAIL", redact(error.message), { category: error.category || "harness", cause: error.cause || "unknown" });
       await log("stage-error", { stage: name, message: error.message });
       throw error;
     } finally { state.finishedAt = now(); await save(); }
@@ -105,24 +151,23 @@ export async function poll(read, accept, timeout, interval = 200) {
   throw Object.assign(issue(`Timed out after ${timeout}ms`), { last });
 }
 
-export async function accountDownloads(items, directory) {
-  const rows = [];
-  const counts = new Map();
-  for (const item of items) counts.set(item.filename, (counts.get(item.filename) || 0) + 1);
-  for (const item of items) {
-    const relativePath = path.relative(directory, item.filename);
-    const inside = relativePath && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
-    let stat;
-    if (inside) stat = await fs.stat(item.filename).catch(() => null);
-    rows.push({ id: item.id, filename: path.basename(item.filename),
-      relativePath: inside ? relativePath.replaceAll(path.sep, "/") : null,
-      state: item.state, error: item.error || null, bytesReceived: item.bytesReceived,
-      totalBytes: item.totalBytes, exists: Boolean(stat?.isFile()), size: stat?.size || 0,
-      duplicatePath: counts.get(item.filename) > 1,
-      verified: item.state === "complete" && Boolean(stat?.isFile()) && stat.size > 0 && Boolean(inside) &&
-        counts.get(item.filename) === 1 && (!(item.bytesReceived > 0) || stat.size === item.bytesReceived) });
+export async function retryObservation(read, timeout, retries) {
+  const attempts = [];
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    let firstFailure = null;
+    try {
+      const result = await poll(async () => {
+        const value = await read();
+        if (value.error && !firstFailure) firstFailure = { message: value.error, timestamp: now() };
+        return value;
+      }, value => !value.error, Math.max(1, Math.floor(timeout / (retries + 1))));
+      attempts.push({ attempt, firstFailure, outcome: "PASS", finishedAt: now() });
+      return { ...result, attempts };
+    } catch (error) {
+      attempts.push({ attempt, firstFailure: firstFailure || { message: error.message, timestamp: now() }, outcome: "FAIL", terminalError: error.message, finishedAt: now() });
+      if (attempt === retries) return { ...(error.last || { response: null, error: error.message }), attempts };
+    }
   }
-  return rows;
 }
 
 export async function command(executable, args, { timeout = 180000, cwd = repoRoot, log = async () => {} } = {}) {

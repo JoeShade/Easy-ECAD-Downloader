@@ -8,6 +8,7 @@ This section summarizes the current `Development` branch compared with `main` as
 
 ### Added
 
+- Added visible terminal entry and an encrypted Windows volatile-registry cache for headless QA SamacSys credentials, reused across runs until restart or user-hive unload, with `qa:auth` setup and clearing commands.
 - Added Mouser SamacSys support for part detection, preview loading, upstream KiCad ZIP download, and KiCad library or loose-file export.
 - Added Farnell SamacSys support through the shared SamacSys distributor flow.
 - Added Firefox SamacSys relay support for preview and export requests through a user-managed relay URL.
@@ -37,6 +38,7 @@ This section summarizes the current `Development` branch compared with `main` as
 
 ### Fixed
 
+- Corrected headless QA download accounting for merged symbol-library overwrites, complete STEP/WRL inspection inventories, circle/arc bounds, back-side views, structured redaction, identifier comparisons, runtime diagnostics, and incomplete evidence coverage.
 - Treated WRL-only SamacSys ZIP archives as valid 3D model exports.
 - Preserved SamacSys library footprint model references when an archive provides only a WRL model.
 - Replaced repeated KiCad footprint template fields so generated vias and text sizes no longer leave raw placeholders.

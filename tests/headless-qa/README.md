@@ -62,8 +62,25 @@ grouped-library mode and `easyECADDownloader` as the library root, selects every
 enabled popup export option, and clicks the real Download button. It observes
 that button's actual export callback without changing its request or response.
 Download accounting waits for the reported number of browser download records
-to reach terminal states, then verifies file size, unique paths and existence
-on disk. The isolated Chrome profile's download-directory preferences preserve
+to reach terminal states, then separates browser **events** from final filesystem
+**assets**. Only the configured grouped symbol-library path permits intentional
+overwrites, with extension provenance checked on live runs. Earlier completed
+versions are retained as superseded events; their byte counts are not compared
+with the final overwritten file. Unexpected duplicate paths still fail.
+
+The final write is identified through matching generated-payload hashes or
+strictly nonoverlapping browser start/end timestamps, never search-result order.
+Equivalent contents can verify a file without identifying the last event; this
+uncertainty remains REVIEW. Missing ordering evidence leaves the asset unverified.
+The final symbol library's S-expression structure and entry names are checked.
+Known expected entries come from all available generated download payloads;
+deterministic fixtures also supply an authoritative expected list. Missing names
+fail. When a complete expected list is unavailable, completeness is REVIEW.
+This establishes retention of known exported entries, not upstream CAD coverage.
+KiCad parsing/rendering is a separate check. Downstream discovery uses verified
+final assets, not historical download events.
+
+The isolated Chrome profile's download-directory preferences preserve
 the extension's filenames; a CDP download override would discard generated
 data-URL filenames on the tested Chrome build. It never
 calls provider download endpoints or extension conversion functions directly.
@@ -83,6 +100,7 @@ Options (milliseconds unless stated otherwise):
 | `--retries` | 1 | Bounded content-message retries; maximum 3 |
 | `--python` | `python` | Python executable; also `QA_PYTHON` |
 | `--kicad-cli` | discovered | KiCad executable; also `KICAD_CLI` |
+| `--samacsys-login` | off | Reuse Windows' memory cache; prompt when it is empty |
 
 ```powershell
 npm.cmd run qa:preflight -- --id preflight-002 --python "C:\Python310\python.exe" --kicad-cli "C:\Program Files\KiCad\10.0\bin\kicad-cli.exe"
@@ -96,10 +114,102 @@ rejected. Diagnostic records omit authorization values, email addresses, image
 data URLs and common secret query parameters. Full page screenshots are saved
 only for classified product pages; blocked/login pages get structured evidence.
 
+### Reuse SamacSys credentials until Windows restarts
+
+Run this from an interactive PowerShell terminal in the repository root:
+
+```powershell
+npm.cmd run qa:auth
+npm.cmd run qa:run -- --samacsys-login --url "https://www.mouser.co.uk/en/ProductDetail/YAGEO/RC0603FR-0710KL?qs=grNVn54RoB%252B3GtjbJj3wJQ%3D%3D" --id samacsys-session-001
+```
+
+When the cache is empty, the terminal prompts for **SamacSys** username and password with both fields
+visible as you type. Use the account accepted by SamacSys/Component Search Engine, rather than
+distributor account credentials. Enter finishes a field; Backspace edits it;
+Ctrl+U clears it; Ctrl+C or Escape cancels. `qa:auth` populates the cache independently
+of product navigation; an authenticated run can also populate it on first use.
+Subsequent `--samacsys-login` runs reuse it automatically, including after failures
+and after closing terminal/browser windows. Cached runs also work without a TTY;
+initial entry requires one. Redirected credential input is rejected.
+There are no secret command-line, environment or
+file inputs, so the command itself contains no credentials.
+Disable `DEBUG`, `NODE_DEBUG` and `NODE_DEBUG_NATIVE` before this mode; it refuses
+debug tracing that could print terminal input or Chrome protocol arguments.
+
+The Windows cache encrypts both fields with current-user DPAPI and holds the
+encrypted payload in a fresh GUID-named **volatile** registry key under
+`HKCU\Software\EasyECADDownloader\HeadlessQaSessions\<checkout-hash>`.
+The checkout hash isolates repositories; a named mutex serializes access.
+Fresh secret keys prevent an existing nonvolatile key from ignoring the volatile
+creation option. Only the nonsecret active-key name is placed in its parent.
+[Volatile keys stay in memory and are excluded from saved registry data](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regcreatekeyexw).
+The cache clears when Windows restarts or the user hive unloads, which can happen
+on sign-out. It is scoped to your Windows account and checkout. Private Node/
+PowerShell stdin/stdout pipes carry values; helper responses are never logged.
+No background keeper, startup task or permanent Credential Manager entry is used.
+
+To discard or replace cached credentials before restarting:
+
+```powershell
+npm.cmd run qa:auth -- --clear
+npm.cmd run qa:auth
+```
+
+For each browser run, the harness copies the values into `chrome.storage.session`, restricts access
+to trusted extension contexts and forces `rememberSamacsysCredentials: false`.
+Session storage is [in memory](https://developer.chrome.com/docs/extensions/reference/api/storage#session),
+not persisted in the profile. The extension's existing auth path consumes these
+settings without changing production behavior. It retries an unauthorized
+SamacSys ZIP request with configured Basic auth; provisioning does not prove
+that the service accepted the login. Metadata records only the mode and whether
+configuration succeeded. Exact entered values and their common encoded forms
+are redacted from evidence and runtime errors in addition to structural redaction.
+Screenshots are omitted with a REVIEW record if their DOM echoes an entered value.
+The runner clears Chrome session storage, closes Chrome and deletes its isolated profile
+on completion or a caught failure, with browser shutdown handling terminal
+interruption. Node discards its credential references and redaction registry
+when the run ends. The shared Windows cache remains for later runs. Credentials
+are never written to the harness's files or logs.
+
+This option authenticates SamacSys requests; it does not log in to Mouser or
+Farnell, import browser cookies, or change distributor navigation. A product-page
+403 or protocol error can still stop the run before any SamacSys request.
+
 Authentication, CAPTCHA, rate limits and access denials are recorded as external
-blockers. The harness stops without trying to evade them. This compact harness
-does not implement sign-in or credential provisioning. A SamacSys ZIP requiring
-authentication may therefore be blocked even when its previews work.
+blockers. The harness stops without trying to evade them. Its default mode is
+unauthenticated. A SamacSys ZIP requiring authentication can therefore be blocked
+even when its previews work; the optional terminal credentials do not guarantee
+access. Successful
+preview evidence is retained, but an authentication-blocked export is not an
+end-to-end validated provider flow. Website login and account management remain
+outside the harness.
+
+Named identifier checks separately compare page fields with detected MPN,
+distributor number and supported manufacturer name, then compare the actual
+popup display with both detection and available page evidence. Identifiers only
+trim surrounding whitespace: punctuation, case, suffixes and order-code characters
+remain meaningful. Manufacturer names and source labels collapse whitespace and
+case, without invented aliases. Missing/conflicting references produce REVIEW.
+EasyEDA's absent manufacturer name is REVIEW because that provider does not
+expose it. JLCPCB uses the documented **LCSC part** popup label; Farnell-family
+labels follow the documented site conventions. Popup activation and identifier
+agreement are distinct checks.
+
+CDP Runtime/Log listeners are installed before extension loading and navigation,
+including Chrome's `other` action-popup target type. Uncaught exceptions and
+console warnings/errors stream to `execution.log` and atomically saved
+`browser/diagnostics.json`. Records include timestamps, context, source URL,
+stage and bounded messages. Capture is capped at 200 records with a dropped count;
+listeners and CDP sessions are removed during cleanup. Retries retain their first
+failure and final execution result. Generic fetch/network/preview/export errors
+remain observations with **unknown cause**. Only explicit access evidence, such
+as an authentication requirement or an HTTP access status, establishes an external
+blocker; demonstrated environment/harness timeouts retain their own category.
+
+Evidence redaction recursively copies structured objects and arrays before
+serialization. Sensitive keys, URL credentials/query values, authorization text
+and image/blob payloads are omitted without modifying component identifiers or
+downloaded assets. It is applied to metadata, redirects, contexts and diagnostics.
 
 ## Render existing downloads
 
@@ -116,24 +226,43 @@ Every top-level symbol entry in every `.kicad_sym` is exported individually with
 `sym export svg`. Every `.kicad_mod` gets `fp export svg` views for copper/silk,
 fabrication with sketched/numbered pads, and courtyard/fabrication. SVG originals
 and decoded PNG copies are preserved. Multiple units/styles produced by KiCad
-remain in the entry directory.
+remain in the entry directory. When back-side content is present, additional
+back copper/silk, fabrication and courtyard views are exported. Through-hole
+pad layer wildcards also trigger back views. Each inspection records its layers.
 
 The renderer copies the complete download directory into the inspection project
 and embeds each footprint **verbatim** into a temporary board placed beside its
 copy, preserving model blocks, offsets, rotation, scale and directory context.
-A closed rectangular Edge.Cuts outline is computed from footprint geometry and
-pad extents. Original files are hashed before/after rendering. Model paths and
+A closed rectangular Edge.Cuts outline is computed from complete circle extents,
+arc sweep extrema, translated primitive coordinates, and rotated pad extents.
+Cubic curves use their conservative control-point hull. Margin is at least 2 mm
+or 15% of the footprint span. Degenerate/nonfinite geometry, unsupported graphic
+types/custom pad primitives, and unexpected root placement are rejected explicitly;
+geometry is never changed to fit the board. Original files are hashed before/after
+rendering, including failed exits. Model paths and
 placements are never corrected to make a render work. The native text fixture
 generator is tested without requiring `pcbnew` bindings.
 
-`pcb render` produces 1200×900 top, isometric and side views. KiCad 10.0.1's
+`pcb render` produces 1200 x 900 top, isometric and side views. KiCad 10.0.1's
 argument parser accepts the positive equivalent `315,0,45` for the isometric
 rotation. A known-good relative WRL reference is calibrated first by rendering
 a synthetic red block and checking that its pixels appear. Calibration failure
 marks model assessment BLOCKED as a fixture/environment problem. Calibration
 success plus an unresolved exported path is an exported-asset REVIEW, without
-guessing its cause. File existence alone does not prove KiCad loaded a model or
-that its placement is correct. Rendering STEP assets uses KiCad's own importer.
+guessing its cause. A synthetic STEP solid is also calibrated against a model-free
+control image: changed pixels establish visible known-good model geometry.
+
+Every downloaded `.step`, `.stp` and `.wrl` has an explicit model inventory record:
+original relative path/hash, verified-download status, actual footprint references,
+exercise kind, commands/images, outcome and limitations. Primary assembly boards
+preserve the exported footprint verbatim. Additional models use clearly labelled
+**derived-model-inspection** fixtures with a relative reference and identity
+transforms. These unassociated importer fixtures do not establish that an original
+reference works or that a model aligns with a footprint. No association is guessed.
+The inventory retains models that could not be exercised, with an outstanding
+limitation. File existence, command success and decoded images do not prove that
+general model geometry appeared. Model results remain REVIEW for visual assessment.
+All derived fixture changes occur in the inspection project; originals stay untouched.
 
 Run the known-good rendering fixture separately from live integration:
 
@@ -144,7 +273,10 @@ python tests/headless-qa/render.py --input "tests/headless-qa/fixtures/known-goo
 `qa:smoke` runs deterministic JS and Python checks with no Chrome, KiCad or
 network required: atomic persistence, exclusive run isolation, download
 containment/completion, bounded timeouts (including a hung observation),
-redaction, exact fixture preservation, closed outlines and failure evidence.
+structural redaction, merged-library retention/collisions, identifier comparisons,
+runtime capture/cleanup and classification, partial coverage, exact fixture
+preservation, circle/arc/rotated-pad bounds, back views, complete model inventory,
+visible credential entry, session-only settings, cache reuse/clearing and credential cleanup/redaction.
 The separate command above exercises real KiCad rendering of synthetic assets.
 
 ## Evidence and interpretation
@@ -179,7 +311,34 @@ An overall execution of `COMPLETED` does not mean all checks passed or all stage
 ran. Read stage execution plus outcomes. A detection FAIL can coexist with later
 completed popup/download stages; a download failure can leave rendering NOT_RUN.
 Partial completed CAD downloads are still rendered. Exit codes are 0 for
-PASS/REVIEW-only results, 1 for FAIL, and 2 for BLOCKED-only results.
+PASS/REVIEW-only results, 1 for FAIL, and 2 for BLOCKED-only results in the underlying
+runner; npm on Windows may normalize a nonzero script exit to 1.
+
+**Schema 2:** `downloads.events` retains every browser event and its destination,
+state/times/bytes/error/disposition. `downloads.assets` replaces the earlier
+event-based `downloads.files` inventory with one record per final file. Metadata
+and results are redacted structurally. Renderer `models` inventories every model;
+`missingModelReferences` records unresolved original references. Command indices
+inside model exercises refer to the renderer's `commands` array. `--inventory
+<result.json>` restricts rendering to schema-2 verified final assets; omit this
+flag for standalone rendering of a supplied directory. Existing schema-1 evidence
+is preserved rather than migrated.
+
+Run and renderer `coverage` summarize expected, attempted, produced and outstanding
+assets/inspections. The renderer plans inspections before CLI preflight so blocked
+commands leave concrete tasks outstanding. A browser run with unavailable rendering
+reports an unavailable plan and pending rendering instead of assuming zero work.
+Completed execution is never labelled fully inspected: automated evidence leaves
+visual inspection pending. `liveWorkflowEvidenceProduced` requires complete stage
+execution, selected assets, decoded previews, produced inspections and no failed/
+blocked checks or runtime errors. It does not assert geometry appearance or visual
+correctness. `liveEndToEndDemonstrated` stays false while review remains outstanding.
+Offline fixtures
+and synthetic runtime probes are not live provider validation.
+
+New renderer reports identify `browser-run-render` (a supplied browser accounting
+inventory) versus `standalone-render` and record the input directory. Standalone
+input-file eligibility does not establish browser download completion or provenance.
 
 Successful decoding or a nonblank-image heuristic is never a claim of component
 correctness. Pin mapping, dimensions and model alignment require inspection.

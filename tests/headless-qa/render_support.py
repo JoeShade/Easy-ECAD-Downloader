@@ -8,16 +8,36 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 import xml.etree.ElementTree as ET
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 
 def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def redact(value):
+    secret = re.compile(r'authorization|password|user[_-]?name|credential|cookie|phpsessid|sess(?:ion)?[_-]?(?:id|key|secret)|token|api[_-]?key|signature', re.I)
+    if isinstance(value, dict):
+        return {key: "[redacted]" if secret.search(key) else redact(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact(item) for item in value]
+    if not isinstance(value, str):
+        return value
+    def url(match):
+        parts = urlsplit(match.group())
+        query = [(key, "[redacted]" if secret.search(key) or key.lower() in ("key", "auth", "code") else item)
+                 for key, item in parse_qsl(parts.query, keep_blank_values=True)]
+        return urlunsplit((parts.scheme, parts.netloc.split("@")[-1], parts.path, urlencode(query), parts.fragment))
+    value = re.sub(r'https?://[^\s"\'<>\\]+', url, value)
+    value = re.sub(r'\b(?:Basic|Bearer)\s+[A-Za-z0-9+/=._-]+', '[authorization omitted]', value, flags=re.I)
+    value = re.sub(r'\b(?:set-cookie|cookie)["\']?\s*:\s*[^\r\n]+', '[cookie omitted]', value, flags=re.I)
+    return re.sub(r'\b(?:data|blob):[^\s"\'<>]+', '[image/blob omitted]', value, flags=re.I)
+
+
 def atomic_json(filename, value):
     filename = Path(filename)
     temporary = filename.with_suffix(filename.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    temporary.write_text(json.dumps(redact(value), indent=2) + "\n", encoding="utf-8")
     temporary.replace(filename)
 
 
@@ -39,7 +59,7 @@ class Evidence:
         self.output = Path(output).resolve()
         self.output.mkdir(parents=True, exist_ok=True)
         self.timeout = timeout
-        self.data = {"schemaVersion": 1, "startedAt": now(), "execution": "RUNNING", "checks": [], "commands": [], "entries": []}
+        self.data = {"schemaVersion": 2, "startedAt": now(), "execution": "RUNNING", "checks": [], "commands": [], "entries": [], "models": []}
         self.env = dict(os.environ, KICAD_CONFIG_HOME=str(self.output / "kicad-config"),
                         KICAD_DOCUMENTS_HOME=str(self.output / "kicad-documents"))
         self.save()
@@ -59,14 +79,17 @@ class Evidence:
                                       creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
             record.update(exitCode=response.returncode, stdout=response.stdout[-100000:], stderr=response.stderr[-100000:])
         except (subprocess.TimeoutExpired, OSError) as error:
-            record.update(exitCode=None, error=str(error), timedOut=isinstance(error, subprocess.TimeoutExpired))
+            record.update(exitCode=None, error=str(error), timedOut=isinstance(error, subprocess.TimeoutExpired),
+                          failureCategory="harness" if isinstance(error, subprocess.TimeoutExpired) else "environment")
         record["finishedAt"] = now()
         self.data["commands"].append(record)
         with (self.output / "execution.log").open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record) + "\n")
+            stream.write(json.dumps(redact(record)) + "\n")
         self.save()
         if record.get("exitCode") != 0:
-            self.check("FAIL", "Command failed or timed out", category="harness", command=record["args"])
+            known = record.get("failureCategory")
+            self.check("BLOCKED" if known else "FAIL", "Command failed or timed out", category=known or "command-observation",
+                       cause=known or "unknown", command=record["args"])
         return record
 
     def preflight(self, explicit):
@@ -97,7 +120,7 @@ class Evidence:
                 if root.tag.split("}")[-1] != "svg":
                     raise ValueError("Not an SVG root")
                 self.check("PASS", "SVG parses", evidence=str(filename))
-                return
+                return True
             with Image.open(filename) as image:
                 image.load()
                 if min(image.size) <= 0:
@@ -106,10 +129,12 @@ class Evidence:
                 self.check("PASS", "Image decoded with nonzero dimensions", evidence=str(filename), dimensions=list(image.size))
                 if max(high-low for low, high in extrema) < 4:
                     self.check("REVIEW", "Image may be blank; heuristic needs visual inspection", evidence=str(filename))
+                return True
         except Exception as error:
             self.check("FAIL", "Missing, empty, invalid SVG or unreadable image", evidence=str(filename), error=str(error))
+            return False
 
 
 def hashes(directory):
-    return {str(file.relative_to(directory)): hashlib.sha256(file.read_bytes()).hexdigest()
+    return {file.relative_to(directory).as_posix(): hashlib.sha256(file.read_bytes()).hexdigest()
             for file in Path(directory).rglob("*") if file.is_file()}
