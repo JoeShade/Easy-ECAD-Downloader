@@ -17,12 +17,13 @@ import {
   createExportContext,
   getLibraryName,
   resolveExportOptions,
-  writeBinaryArtifact,
+  writeCompletedModelArtifact,
   writeSymbolArtifact,
   writeTextArtifact,
   writeUrlArtifact
 } from "../core/export_artifacts.js";
 import { sanitizeFilenamePart } from "../core/preview_data.js";
+import { completedModelFilename } from "../core/download_receipts.js";
 
 function buildSafeFilename(name, extension, fallback) {
   return `${sanitizeFilenamePart(name, fallback)}.${extension}`;
@@ -143,7 +144,7 @@ function findKicadModelPathRange(modelBlockText) {
       } else if (char === "\\") {
         escaped = true;
       } else if (char === "\"") {
-        return { start: pathStart, end: cursor };
+        return { start: pathStart, end: cursor, quoted: true };
       }
     }
     return null;
@@ -181,7 +182,9 @@ function rewriteFirstKicadFootprintModelPath(footprintText, modelPath) {
     return text;
   }
 
-  const rewrittenBlock = `${modelBlockText.slice(0, pathRange.start)}${modelPath}${modelBlockText.slice(pathRange.end)}`;
+  const escapedPath = modelPath.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const pathToken = pathRange.quoted ? escapedPath : `"${escapedPath}"`;
+  const rewrittenBlock = `${modelBlockText.slice(0, pathRange.start)}${pathToken}${modelBlockText.slice(pathRange.end)}`;
   return `${text.slice(0, modelBlock.start)}${rewrittenBlock}${text.slice(modelBlock.end)}`;
 }
 
@@ -230,6 +233,7 @@ function createEasyedaAdapter(deps) {
         ? sanitizeFilenamePart(modelInfo.name, modelInfo.uuid || "model")
         : "";
       let footprintModelFilename = "";
+      let modelReceipt;
 
       if (kicadFiles.symbol) {
         const symbolFilename = buildSafeFilename(
@@ -249,41 +253,40 @@ function createEasyedaAdapter(deps) {
 
       if (resolvedOptions.model3d) {
         if (modelInfo) {
-          const stepResponse = await fetchImpl(
-            EASYEDA_MODEL_STEP_ENDPOINT.replace("{uuid}", modelInfo.uuid)
-          );
-          if (stepResponse.ok) {
-            const stepData = await stepResponse.arrayBuffer();
-            downloadCount += await writeBinaryArtifact({
-              downloads,
-              exportContext,
-              data: stepData,
-              individualFilename: `${safeModelName}.step`,
-              libraryPath: `${exportContext.libraryPaths.modelDir}/${safeModelName}.step`
-            });
-            footprintModelFilename = `${safeModelName}.step`;
-          } else {
-            console.warn("3D STEP download failed:", stepResponse.status);
-            warnings.push("3D STEP model download failed.");
-          }
-
-          const objResponse = await fetchImpl(
-            EASYEDA_MODEL_OBJ_ENDPOINT.replace("{uuid}", modelInfo.uuid)
-          );
-          if (objResponse.ok) {
-            const objData = await objResponse.text();
-            const wrlData = convertObjToWrlString(objData);
-            downloadCount += await writeTextArtifact({
-              downloads,
-              exportContext,
-              content: wrlData,
-              individualFilename: `${safeModelName}.wrl`,
-              libraryPath: `${exportContext.libraryPaths.modelDir}/${safeModelName}.wrl`
-            });
-            footprintModelFilename = `${safeModelName}.wrl`;
-          } else {
-            console.warn("3D OBJ download failed:", objResponse.status);
-            warnings.push("3D WRL model download failed.");
+          for (const extension of ["step", "wrl"]) {
+            const label = extension.toUpperCase();
+            let failureStage = "fetch";
+            try {
+              const endpoint = extension === "step" ? EASYEDA_MODEL_STEP_ENDPOINT : EASYEDA_MODEL_OBJ_ENDPOINT;
+              const response = await fetchImpl(endpoint.replace("{uuid}", modelInfo.uuid));
+              if (!response.ok) {
+                warnings.push(`3D ${label} model download failed (HTTP ${response.status}).`);
+                continue;
+              }
+              failureStage = extension === "step" ? "read" : "conversion";
+              const data = extension === "step" ? await response.arrayBuffer()
+                : convertObjToWrlString(await response.text());
+              failureStage = "download start";
+              const receipt = await writeCompletedModelArtifact({
+                downloads, exportContext, data, binary: extension === "step",
+                individualFilename: `${safeModelName}.${extension}`,
+                libraryPath: `${exportContext.libraryPaths.modelDir}/${safeModelName}.${extension}`
+              });
+              // Counts retain their existing meaning: browser downloads started,
+              // including a model that later fails verification or is interrupted.
+              downloadCount += 1;
+              const deliveredName = completedModelFilename(receipt, modelReceipt);
+              if (deliveredName) {
+                footprintModelFilename = deliveredName;
+                modelReceipt = receipt;
+              } else {
+                warnings.push(receipt.state === "complete"
+                  ? `3D ${label} model location could not be verified; model reference omitted for this asset.`
+                  : `3D ${label} model unavailable: ${(receipt.error || receipt.state).replace(/\.+$/, "")}.`);
+              }
+            } catch (error) {
+              warnings.push(`3D ${label} model ${failureStage} failed: ${error?.message || String(error)}`);
+            }
           }
         } else {
           warnings.push("3D model not available for this part.");

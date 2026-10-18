@@ -38,6 +38,7 @@ This section summarizes the current `Development` branch compared with `main` as
 
 ### Fixed
 
+- Fixed issue #17's EasyEDA model-selection boundary: wait for ID-scoped browser completion, reference delivered STEP/WRL basenames after renames, fall back from failed WRL downloads, and omit references when model completion or the requested directory layout cannot be verified. Added bounded lifecycle handling and regression coverage for all eight reported names.
 - Recognized the LCSC `MPN` label in supported product fields for issue #14, preserving exact manufacturer identifiers, catalogue association checks and exports when MPN metadata is unavailable.
 - Fixed issue #13: resolve JLCPCB/LCSC product identity from supported product routes and complete labelled fields, including modern wrapped definition lists. Conflicting identities now disable previews and export; incidental page text and manufacturer-part substrings no longer drive EasyEDA lookups.
 - Corrected headless QA download accounting for merged symbol-library overwrites, complete STEP/WRL inspection inventories, circle/arc bounds, back-side views, structured redaction, identifier comparisons, runtime diagnostics, and incomplete evidence coverage.

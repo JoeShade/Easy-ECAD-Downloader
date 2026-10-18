@@ -10,7 +10,8 @@ import { registerServiceWorkerRuntime } from "../../src/service_worker_runtime.j
 export function createServiceWorkerChrome({
   storageState = {},
   sessionStorageState = {},
-  cookieState = {}
+  cookieState = {},
+  downloadBehavior = () => ({})
 } = {}) {
   const listeners = {
     runtimeMessage: [],
@@ -20,6 +21,17 @@ export function createServiceWorkerChrome({
   const sessionStorage = { ...sessionStorageState };
   const cookieJar = { ...cookieState };
   let nextDownloadId = 1;
+  const downloadItems = new Map();
+
+  function changeDownload(id, changes) {
+    const item = downloadItems.get(id);
+    const delta = { id };
+    for (const [key, value] of Object.entries(changes)) {
+      delta[key] = { previous: item[key], current: value };
+    }
+    Object.assign(item, changes);
+    for (const listener of [...listeners.downloadsChanged]) listener(delta);
+  }
 
   const chrome = {
     runtime: {
@@ -38,12 +50,29 @@ export function createServiceWorkerChrome({
     downloads: {
       download: vi.fn((options, callback) => {
         const downloadId = nextDownloadId++;
+        const item = { id: downloadId, filename: `C:/Downloads/${options.filename}`,
+          state: "in_progress", exists: true };
+        downloadItems.set(downloadId, item);
+        const behavior = downloadBehavior(options, item) || {};
         callback?.(downloadId);
+        if (behavior.autoComplete !== false) globalThis.queueMicrotask(() => changeDownload(downloadId, {
+          state: "complete", ...behavior
+        }));
         return downloadId;
+      }),
+      search: vi.fn(({ id }, callback) => callback(downloadItems.has(id)
+        ? [{ ...downloadItems.get(id) }] : [])),
+      cancel: vi.fn((id, callback) => {
+        changeDownload(id, { state: "interrupted", error: "USER_CANCELED" });
+        callback?.();
       }),
       onChanged: {
         addListener(listener) {
           listeners.downloadsChanged.push(listener);
+        },
+        removeListener(listener) {
+          const index = listeners.downloadsChanged.indexOf(listener);
+          if (index >= 0) listeners.downloadsChanged.splice(index, 1);
         }
       }
     },
@@ -93,7 +122,7 @@ export function createServiceWorkerChrome({
     }
   };
 
-  return { chrome, listeners, storage, sessionStorage };
+  return { chrome, listeners, storage, sessionStorage, downloadItems, changeDownload };
 }
 
 export function createMockUrlApi() {

@@ -1,0 +1,10 @@
+[
+  {"case":"P064-F03","id":"C82762","url":"https://jlcpcb.com/partdetail/DiodesIncorporated-MMBT3906_7F/C82762","name":"SOT-23-3L_L2.9-W1.6-H1.1-LS2.8-P0.95","delivered":"SOT-23-3L_L2.9-W1.6-H1.1-LS2.8-P0..wrl"},
+  {"case":"P081-F04","id":"C116490","url":"https://jlcpcb.com/partdetail/MicrochipTech-MCP6001T_IOT/C116490","name":"SOT-23-5_L2.9-W1.6-H1.1-LS2.8-P0.95","delivered":"SOT-23-5_L2.9-W1.6-H1.1-LS2.8-P0.9.wrl"},
+  {"case":"P084-F04","id":"C7833","url":"https://jlcpcb.com/partdetail/TexasInstruments-SN74LVC1G125DCKR/C7833","name":"SOT-353-5P_L2.0-W1.3-H1.1-LS2.0-P0.65","delivered":"SOT-353-5P_L2.0-W1.3-H1.1-LS2.0-P0.wrl"},
+  {"case":"P089-F04","id":"C84817","url":"https://jlcpcb.com/partdetail/C84817","name":"SOT-23-6_L2.9-W1.6-H1.5-LS2.8-P0.95","delivered":"SOT-23-6_L2.9-W1.6-H1.5-LS2.8-P0.9.wrl"},
+  {"case":"P150-F03","id":"C548268","url":"https://jlcpcb.com/partdetail/Nexperia-74LVC1G14GM132/C548268","name":"XSON-6_L1.5-W1.0-H0.5-P0.50-S0.60-BR","delivered":"XSON-6_L1.5-W1.0-H0.5-P0.50-S0.60-.wrl"},
+  {"case":"P154-F05","id":"C84808","url":"https://jlcpcb.com/partdetail/STMicroelectronics-STM32F429ZIT6/C84808","name":"LQFP-144_L20.0-W20.0-P0.50-LS22.0-BL","delivered":"LQFP-144_L20.0-W20.0-P0.50-LS22.0-.wrl"},
+  {"case":"P164-F04","id":"C1521699","url":"https://jlcpcb.com/partdetail/AMDXILINX-XC7S251CSGA225C/C1521699","name":"FPGA-225_L13.0-W13.0-H1.2-R15-C15-P0.80-TL","delivered":"FPGA-225_L13.0-W13.0-H1.2-R15-C15-.wrl"},
+  {"case":"P201-F02","id":"C701341","url":"https://jlcpcb.com/partdetail/EspressifSystems-ESP32_WROOM_32EN4/C701341","name":"WIFI-SMD_L25.5-W18.0-H3.1-ESP32-WROOM-32E","delivered":"WIFI-SMD_L25.5-W18.0-H3.1-ESP32-WR.wrl"}
+]

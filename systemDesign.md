@@ -267,10 +267,13 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
   - loose-file downloads when `downloadIndividually` is `true`
   - KiCad-style library structure when `downloadIndividually` is `false`
 - Library-mode symbol exports merge into a stored symbol library keyed by the resolved library root.
-- Footprint model references are reconciled after 3D export attempts finish:
-  - loose-file footprints reference `${KIPRJMOD}/<modelFilename>` when a model was exported
-  - library-mode footprints reference `../<libraryName>.3dshapes/<modelFilename>` when a model was exported
-  - stale footprint `(model ...)` blocks are removed when no selected 3D model artifact is exported
+- EasyEDA model writes opt into a terminal browser receipt, associated with the exact download ID and requested path. Ordinary artifact writers still return a count of started downloads; `downloadCount` includes acknowledged starts that subsequently fail. The popup's `Download started` status retains that meaning.
+- `src/core/downloads.js` owns browser calls and Blob cleanup; `src/core/download_receipts.js` subscribes before querying the ID, requeries snapshots invalidated by events, and polls every second for missed events. Each model has a 60-second total verification budget, including a start callback bounded to 10 seconds. Missing items, query failures and timeouts produce unverified receipts and request cancellation. Blob URLs are released on terminal state or confirmed cancellation, never merely on timeout.
+- Polling extension APIs keeps the active MV3 request from becoming idle. Runtime messaging returns `true` and defers its reply until model selection finishes. Worker/browser termination abandons the request; no in-memory promise or receipt is treated as durable, and restarted workers do not resume abandoned footprint generation. No permanent receipt state is stored.
+- Footprint model references use only a successfully completed model's observed basename, preferring WRL over STEP. A failed/unverified WRL leaves a valid STEP selected. HTTP/fetch, browser-start, terminal interruption, verification and incompatible-location warnings remain distinct; optional model failures allow other selected assets to proceed.
+- Path validation requires an absolute browser filename, no traversal/control characters, an unchanged observed model parent, the complete requested library-directory suffix at segment boundaries, and a consistent inferred Downloads root across selected model receipts. Drive, UNC and POSIX paths are handled without embedding them in portable output. Counter suffixes and truncation are retained; no prefix guessing, global filename search or overwrite policy is added.
+- Portable paths retain the existing layout contract: library footprints use `../<libraryName>.3dshapes/<deliveredBasename>`; loose files use `${KIPRJMOD}/<deliveredBasename>` and must be placed together in the project. The Downloads API does not expose the default root independently. A single already-redirected initial path cannot establish that root; individual Save As overrides, changing the root during an export, or subsequent file moves are outside the verified layout. Dependent footprints retain ordinary started-only download semantics; their final destination is not independently verified.
+- Rewriting escapes KiCad strings and changes only the first existing model-path token, preserving transforms, geometry and existing multiple-block behavior. When no selected model has a usable receipt, all stale `(model ...)` blocks are removed.
 - EasyEDA OBJ-to-WRL conversion recenters model geometry in X/Y, bottom-aligns the model in Z, and writes footprint model offsets in KiCad 3D units so the WRL aligns with the generated footprint.
 - Library-mode datasheet exports are written under `<libraryRoot>/datasheets/`.
 
@@ -356,7 +359,7 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
 - SamacSys distributor loose-file symbol output keeps the extracted `.kicad_sym` filename from the ZIP.
 - Footprint output uses the extracted or generated `.kicad_mod` filename.
 - SamacSys distributor footprint library-mode downloads rewrite the model path into the library `.3dshapes` directory.
-- EasyEDA footprint downloads rewrite the first KiCad `(model ...)` path to the exported STEP or WRL artifact, preferring WRL when both are produced, and remove stale model blocks when no model artifact is exported.
+- EasyEDA footprint downloads rewrite the first KiCad `(model ...)` path to the delivered basename from a usable completed STEP or WRL receipt, preferring WRL, and remove stale model blocks when neither receipt is usable within the portable layout.
 - EasyEDA datasheet output uses a sanitized base name plus `-datasheet` and the detected extension. In library mode it is saved under `<libraryRoot>/datasheets/`.
 - The library root name defaults to `easyECADDownloader` and can be changed to another Downloads-relative folder for library mode.
 

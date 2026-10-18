@@ -123,6 +123,18 @@ async function writeBinaryArtifact({
   return 1;
 }
 
+// Existing writers keep their numeric started-count contract. Model selection
+// explicitly opts into a separate terminal receipt, including unsuccessful ones.
+async function writeCompletedModelArtifact({
+  downloads, exportContext, data, individualFilename, libraryPath, binary = false
+}) {
+  const write = binary ? downloads.downloadBinaryFile : downloads.downloadTextFile;
+  return write(
+    exportContext.settings.downloadIndividually ? individualFilename : libraryPath,
+    data, "application/octet-stream", undefined, { waitForCompletion: true }
+  );
+}
+
 async function writeUrlArtifact({
   downloads,
   exportContext,
@@ -142,6 +154,7 @@ export {
   getLibraryName,
   resolveExportOptions,
   writeBinaryArtifact,
+  writeCompletedModelArtifact,
   writeSymbolArtifact,
   writeTextArtifact,
   writeUrlArtifact
