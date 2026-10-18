@@ -221,7 +221,7 @@ Browser QA remains unauthenticated by default. Opt-in `--samacsys-login` reuses 
   - provider `easyedaLcsc`
   - source label `LCSC part`
   - source part number equal to the detected LCSC id
-  - manufacturer part number when the page exposes `Mfr. Part #`
+  - manufacturer part number when the page exposes `Mfr. Part #` or `MPN`
   - lookup metadata containing the LCSC id
 - On Mouser pages, the content script returns:
   - provider `mouserSamacsys`
@@ -240,7 +240,7 @@ EasyEDA identity is recomputed for each request from the current HTTP(S) URL and
 
 The EasyEDA-only field reader accepts complete values under exact normalized `JLCPCB Part #` or `LCSC Part #` labels. It reads adjacent `dt`/`dd` pairs, including modern div-wrapped pairs, and two-cell `th`/`td` rows in `table.tableInfoWrap`, within `main` or otherwise the body. Hidden/inert, nested, navigation/footer/aside, recommendation/related and differently linked product fields are excluded. Invalid fields do not suppress later valid ones. Shared SamacSys readers are unchanged.
 
-One distinct ID is accepted; duplicates agree and conflicting URL/field IDs return the existing empty context, disabling previews and export. The whole-page text fallback is removed. Manufacturer punctuation is preserved; conflicting MPNs are omitted, and URL-derived contexts require an agreeing catalogue field before attaching an MPN. No identity is cached, and no network validation, observers or retries are added.
+One distinct ID is accepted; duplicates agree and conflicting URL/field IDs return the existing empty context, disabling previews and export. The whole-page text fallback is removed. Manufacturer metadata uses only exact normalized `Mfr. Part #` (including `MFR.Part #`) and `MPN` labels in those same supported fields. Values remain strings with punctuation, case, leading zeros and internal spaces preserved; repeated agreeing MPNs are deduplicated and conflicting MPNs are omitted. URL-derived contexts require an agreeing catalogue field before attaching an MPN. An unavailable MPN does not block previews or export for a valid catalogue identity; EasyEDA lookups continue to use the LCSC id. No identity is cached, and no network validation, observers or retries are added.
 
 ### 5.2 Request previews
 

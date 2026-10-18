@@ -5,65 +5,9 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { JSDOM } from "jsdom";
 import cases from "./fixtures/issue_13.json";
 
-import { runSourceFile } from "./helpers/test_harness.js";
-
-function loadContentScript(
-  markup,
-  { url = "https://www.lcsc.com/product-detail/example", headMarkup = "" } = {}
-) {
-  const dom = new JSDOM(
-    `<!doctype html><html><head>${headMarkup}</head><body>${markup}</body></html>`,
-    {
-      url
-    }
-  );
-  const listeners = [];
-  const chrome = {
-    runtime: {
-      onMessage: {
-        addListener(listener) {
-          listeners.push(listener);
-        }
-      }
-    }
-  };
-
-  const context = runSourceFile("src/content_script.js", {
-    context: {
-      chrome,
-      document: dom.window.document,
-      window: dom.window
-    },
-    append: `
-globalThis.__testExports = {
-  parseLoadPartDivCall,
-  buildSamacsysEntryUrl,
-  parseSamacsysLinkUrl,
-  parseEasyedaProductUrl,
-  findLcscId,
-  findManufacturerPartNumber,
-  findMouserPartContext,
-  findFarnellPartContext,
-  findEasyedaPartContext,
-  findPartContext
-};
-`
-  });
-
-  return {
-    dom,
-    hooks: context.__testExports,
-    listener: listeners[0],
-    requestContext() {
-      const respond = vi.fn();
-      listeners[0]({ type: "GET_PART_CONTEXT" }, null, respond);
-      return respond.mock.calls[0][0];
-    }
-  };
-}
+import { loadContentScript } from "./helpers/content_script_harness.js";
 
 describe("content script", () => {
   it("extracts EasyEDA identifiers from supported page text", () => {

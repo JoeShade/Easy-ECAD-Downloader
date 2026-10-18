@@ -180,7 +180,7 @@ function findManufacturerPartNumber() {
   const fieldIds = findEasyedaFieldValues(["jlcpcb part #", "lcsc part #"]);
   // A URL alone cannot associate a possibly stale MPN field with the new part.
   if (urlId && !fieldIds.some(value => value.toUpperCase() === urlId)) return null;
-  const values = new Set(findEasyedaFieldValues(["mfr part #"]));
+  const values = new Set(findEasyedaFieldValues(["mfr part #", "mpn"]));
   return values.size === 1 ? [...values][0] : null;
 }
 

@@ -6,6 +6,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { JSDOM } from "jsdom";
+import { loadContentScript } from "./helpers/content_script_harness.js";
 import cases from "./fixtures/issue_13.json";
 
 import {
@@ -153,6 +154,29 @@ function activatePopupTab(state, tabId) {
 }
 
 describe("popup", () => {
+  it.each(["0451001.MRL", "RC1206FR-0710KL", "G5V-1 DC5", null])(
+    "displays exact detected MPN %s while retaining catalogue-based previews and export", async mpn => {
+      const page = loadContentScript(`<dl><dt>LCSC Part #</dt><dd>C132649</dd>
+        ${mpn === null ? "" : `<dt>MPN</dt><dd>${mpn}</dd>`}</dl>`,
+      { url: "https://lcsc.com/product-detail/C132649.html" });
+      const partContext = page.requestContext();
+      const { state, hooks } = await loadPopup();
+      await applyStoredSettings(state);
+      activatePopupTab(state, 7);
+      state.tabMessages[0].callback(partContext);
+      expect(hooks.elements.manufacturerPartNumberEl.textContent).toBe(mpn || "Not found");
+      expect(hooks.elements.partNumberEl.textContent).toBe("C132649");
+      expect(state.runtimeMessages[0].message).toEqual({ type: "GET_PART_PREVIEWS", partContext });
+      expect(state.runtimeMessages[0].message.partContext.lookup.lcscId).toBe("C132649");
+      state.runtimeMessages[0].callback({ ok: true, previews: {}, metadata: { datasheetAvailable: false } });
+      await flushAsyncWork();
+      expect(hooks.elements.downloadButton.disabled).toBe(false);
+      hooks.elements.downloadButton.click();
+      expect(state.runtimeMessages[1].message).toMatchObject({ type: "EXPORT_PART", partContext });
+      expect(state.runtimeMessages[1].message.partContext.lookup.lcscId).toBe("C132649");
+      page.dom.window.close();
+    });
+
   it.each(cases)("displays and forwards the resolved $case identity for previews and export", async row => {
     const partContext = { ...EASYEDA_PART_CONTEXT, sourcePartNumber: row.id,
       manufacturerPartNumber: row.mpn, lookup: { lcscId: row.id } };

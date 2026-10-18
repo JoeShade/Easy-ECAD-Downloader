@@ -22,7 +22,10 @@ function decodeDataUrl(dataUrl) {
 }
 
 describe("service worker EasyEDA flow", () => {
-  it.each(cases)("fetches the resolved $case ID for preview and export", async row => {
+  it.each([...cases,
+    { case: "issue14-exact", id: "C3099", mpn: "0451001.MRL" },
+    { case: "issue14-unavailable", id: "C3099", mpn: null }
+  ])("fetches the resolved $case ID for preview and export", async row => {
     const partContext = { provider: "easyedaLcsc", sourcePartNumber: row.id,
       manufacturerPartNumber: row.mpn, lookup: { lcscId: row.id } };
     const { chrome, listeners } = createServiceWorkerChrome();
