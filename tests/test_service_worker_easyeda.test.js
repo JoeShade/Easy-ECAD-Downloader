@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import cases from "./fixtures/issue_13.json";
 
 import { createCadData, createSymbolLibrary } from "./helpers/fixtures.js";
 import { flushAsyncWork } from "./helpers/test_harness.js";
@@ -21,6 +22,29 @@ function decodeDataUrl(dataUrl) {
 }
 
 describe("service worker EasyEDA flow", () => {
+  it.each(cases)("fetches the resolved $case ID for preview and export", async row => {
+    const partContext = { provider: "easyedaLcsc", sourcePartNumber: row.id,
+      manufacturerPartNumber: row.mpn, lookup: { lcscId: row.id } };
+    const { chrome, listeners } = createServiceWorkerChrome();
+    const fetchImpl = vi.fn(async () => ({
+      ok: true, json: async () => ({ result: createCadData({ lcscId: row.id }) })
+    }));
+    loadServiceWorker({ chrome, fetchImpl, convertEasyedaCadToKicad: vi.fn(() => ({
+      symbol: { name: "LogicBuffer", content: createSymbolLibrary("LogicBuffer") }
+    })) });
+    for (const type of ["GET_PART_PREVIEWS", "EXPORT_PART"]) {
+      const result = await sendRuntimeMessage(listeners.runtimeMessage[0], {
+        type, partContext, options: { symbol: true, footprint: false, model3d: false, datasheet: false }
+      });
+      expect(result.response.ok).toBe(true);
+    }
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      `https://easyeda.com/api/products/${row.id}/components?version=6.4.19.5`,
+      `https://easyeda.com/api/products/${row.id}/components?version=6.4.19.5`
+    ]);
+    expect(chrome.downloads.download).toHaveBeenCalled();
+  });
+
   it("renders EasyEDA oval pad previews without using two-point guide data as a polygon", () => {
     const svg = buildFootprintPreviewSvg({
       packageDetail: {

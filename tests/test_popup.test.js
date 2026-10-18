@@ -6,6 +6,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { JSDOM } from "jsdom";
+import cases from "./fixtures/issue_13.json";
 
 import {
   flushAsyncWork,
@@ -152,6 +153,36 @@ function activatePopupTab(state, tabId) {
 }
 
 describe("popup", () => {
+  it.each(cases)("displays and forwards the resolved $case identity for previews and export", async row => {
+    const partContext = { ...EASYEDA_PART_CONTEXT, sourcePartNumber: row.id,
+      manufacturerPartNumber: row.mpn, lookup: { lcscId: row.id } };
+    const { state, hooks } = await loadPopup();
+    await applyStoredSettings(state);
+    activatePopupTab(state, 7);
+    state.tabMessages[0].callback(partContext);
+    expect(hooks.elements.partNumberEl.textContent).toBe(row.id);
+    expect(hooks.elements.manufacturerPartNumberEl.textContent).toBe(row.mpn);
+    expect(state.runtimeMessages[0].message).toEqual({ type: "GET_PART_PREVIEWS", partContext });
+    expect(state.runtimeMessages[0].message.partContext.lookup.lcscId).toBe(row.id);
+    state.runtimeMessages[0].callback({ ok: true, previews: {}, metadata: { datasheetAvailable: false } });
+    await flushAsyncWork();
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages[1].message).toMatchObject({ type: "EXPORT_PART", partContext });
+    expect(state.runtimeMessages[1].message.partContext.lookup.lcscId).toBe(row.id);
+  });
+
+  it("makes no preview or export request for an unavailable context", async () => {
+    const partContext = { provider: null, sourcePartLabel: null, sourcePartNumber: null,
+      manufacturerPartNumber: null, lookup: null };
+    const { state, hooks } = await loadPopup();
+    await applyStoredSettings(state);
+    activatePopupTab(state, 7);
+    state.tabMessages[0].callback(partContext);
+    expect(hooks.elements.downloadButton.disabled).toBe(true);
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages).toHaveLength(0);
+  });
+
   it("starts in a loading state and requests the active tab plus saved settings", async () => {
     const { state, hooks } = await loadPopup();
 

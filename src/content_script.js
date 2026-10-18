@@ -32,7 +32,9 @@ const EMPTY_PART_CONTEXT = {
 };
 
 function isEasyedaHost() {
-  return /(^|\.)((lcsc|jlcpcb)\.com)$/i.test(window.location.hostname);
+  const url = new URL(window.location.href);
+  return /^https?:$/.test(url.protocol) && !url.username && !url.password &&
+    !url.port && /^(www\.)?(lcsc|jlcpcb)\.com$/i.test(url.hostname);
 }
 
 function isElement14Host() {
@@ -65,19 +67,6 @@ function buildQueryString(entries) {
         `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`
     )
     .join("&");
-}
-
-// Pull the LCSC part id (e.g., C12345) out of a text string.
-function extractLcscId(text) {
-  if (!text) {
-    return null;
-  }
-  const match = text.toUpperCase().match(/C\d{3,}/);
-  return match ? match[0] : null;
-}
-
-function extractManufacturerPartNumber(text) {
-  return normalizeDetectedValue(text);
 }
 
 function hasExpectedLabel(label, expectedLabels, exact = false) {
@@ -130,16 +119,80 @@ function findLabeledText(expectedLabels, exact = false) {
   );
 }
 
-function findManufacturerPartNumber() {
-  return extractManufacturerPartNumber(findLabeledText(["mfr. part #"]));
+function parseEasyedaProductUrl(value) {
+  let url;
+  try { url = new URL(value); } catch { return null; }
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.port) {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  const route = /^(www\.)?jlcpcb\.com$/.test(host)
+    ? /^\/partdetail\/[^/]+\/(C\d{3,})\/?$/i
+    : /^(www\.)?lcsc\.com$/.test(host)
+      ? /^\/product-detail\/(C\d{3,})\.html\/?$/i : null;
+  return route?.exec(url.pathname)?.[1].toUpperCase() || null;
 }
 
-// Try the targeted searches first, then scan the entire page as a fallback.
+function isCurrentEasyedaField(node) {
+  if (node.closest("aside, nav, footer, script, style, template")) return false;
+  for (let element = node; element; element = element.parentElement) {
+    if (element.hidden || element.hasAttribute("inert") ||
+        element.getAttribute("aria-hidden") === "true" ||
+        /recommend|related/i.test(`${element.id} ${element.className} ${element.getAttribute("aria-label") || ""}`)) return false;
+    const style = window.getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden" ||
+        style.visibility === "collapse") return false;
+    if (element.matches("a[href]")) {
+      const linkedId = parseEasyedaProductUrl(element.href);
+      if (linkedId && linkedId !== parseEasyedaProductUrl(window.location.href)) return false;
+    }
+  }
+  return true;
+}
+
+function findEasyedaFieldPairs() {
+  // Modern JLCPCB wraps each dt/dd pair in a div. Keep adjacent siblings
+  // together; never combine the first label/value across nested groups.
+  const root = document.querySelector("main") || document.body;
+  const pairs = Array.from(root.querySelectorAll("dl dt"), label => [
+    label, label.nextElementSibling?.matches("dd") ? label.nextElementSibling : null
+  ]);
+  for (const row of root.querySelectorAll("table.tableInfoWrap tr")) {
+    const cells = Array.from(row.children).filter(cell => cell.matches("th, td"));
+    if (cells.length === 2) pairs.push(cells);
+  }
+  return pairs.filter(([label, value]) => value &&
+    !label.parentElement.closest("dd, td, th") &&
+    !value.querySelector("dt, dd, tr, script, style, template") &&
+    [label, value].every(node => isCurrentEasyedaField(node) &&
+      Array.from(node.querySelectorAll("*")).every(isCurrentEasyedaField)));
+}
+
+function findEasyedaFieldValues(expectedLabels) {
+  return findEasyedaFieldPairs()
+    .filter(([label]) => expectedLabels.includes(normalizeLabel(label.textContent || "")))
+    .map(([, value]) => normalizeDetectedValue(value.textContent))
+    .filter(Boolean);
+}
+
+function findManufacturerPartNumber() {
+  const urlId = parseEasyedaProductUrl(window.location.href);
+  const fieldIds = findEasyedaFieldValues(["jlcpcb part #", "lcsc part #"]);
+  // A URL alone cannot associate a possibly stale MPN field with the new part.
+  if (urlId && !fieldIds.some(value => value.toUpperCase() === urlId)) return null;
+  const values = new Set(findEasyedaFieldValues(["mfr part #"]));
+  return values.size === 1 ? [...values][0] : null;
+}
+
 function findLcscId() {
-  return (
-    extractLcscId(findLabeledText(["jlcpcb part #", "lcsc part #"])) ||
-    extractLcscId(document.body.textContent)
-  );
+  if (!isEasyedaHost()) return null;
+  // Only a complete labelled C + 3-or-more digits value or a supported route
+  // identifies the product. Repeated evidence agrees; distinct IDs fail closed.
+  const ids = new Set(findEasyedaFieldValues(["jlcpcb part #", "lcsc part #"])
+    .filter(value => /^C\d{3,}$/i.test(value)).map(value => value.toUpperCase()));
+  const urlId = parseEasyedaProductUrl(window.location.href);
+  if (urlId) ids.add(urlId);
+  return ids.size === 1 ? [...ids][0] : null;
 }
 
 function getInputValue(id) {

@@ -100,7 +100,7 @@ flowchart LR
 
 Owns page inspection only:
 
-- detect EasyEDA/LCSC identifiers from definition lists, known tables, and page text
+- resolve EasyEDA/LCSC identifiers from supported product URLs and complete labelled product fields, rejecting conflicting identities
 - detect Mouser SamacSys ECAD availability from the ECAD button
 - detect Farnell, element14, or Newark SamacSys ECAD availability from the `Supply Frame Models Link`
 - read provider-specific source part metadata from the page DOM
@@ -235,6 +235,12 @@ Browser QA remains unauthenticated by default. Opt-in `--samacsys-login` reuses 
   - source part number equal to the detected page order code or page part identifier
   - manufacturer part number from the SamacSys link metadata or page text
   - lookup metadata containing manufacturer name and a reconstructed SamacSys entry URL
+
+EasyEDA identity is recomputed for each request from the current HTTP(S) URL and labelled product fields. URL evidence requires an apex or `www` JLCPCB/LCSC host, no credentials or nonstandard port, and `/partdetail/<slug>/C<digits>` or `/product-detail/C<digits>.html` respectively. Routes are case-insensitive with one optional trailing slash; IDs remain strings with uppercase `C` and at least three digits. Slugs, queries, fragments, canonical links and JSON-LD are not identity sources.
+
+The EasyEDA-only field reader accepts complete values under exact normalized `JLCPCB Part #` or `LCSC Part #` labels. It reads adjacent `dt`/`dd` pairs, including modern div-wrapped pairs, and two-cell `th`/`td` rows in `table.tableInfoWrap`, within `main` or otherwise the body. Hidden/inert, nested, navigation/footer/aside, recommendation/related and differently linked product fields are excluded. Invalid fields do not suppress later valid ones. Shared SamacSys readers are unchanged.
+
+One distinct ID is accepted; duplicates agree and conflicting URL/field IDs return the existing empty context, disabling previews and export. The whole-page text fallback is removed. Manufacturer punctuation is preserved; conflicting MPNs are omitted, and URL-derived contexts require an agreeing catalogue field before attaching an MPN. No identity is cached, and no network validation, observers or retries are added.
 
 ### 5.2 Request previews
 

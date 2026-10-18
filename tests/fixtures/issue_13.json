@@ -1,0 +1,11 @@
+[
+  {"case": "P001", "mpn": "RC0201FR-0710KL", "id": "C106225", "wrong": "C0201", "url": "https://jlcpcb.com/partdetail/YAGEO-RC0201FR0710KL/C106225"},
+  {"case": "P002", "mpn": "RC0402FR-0710KL", "id": "C60490", "wrong": "C0402", "url": "https://jlcpcb.com/partdetail/YAGEO-RC0402FR0710KL/C60490"},
+  {"case": "P004", "mpn": "RC0805FR-0710KL", "id": "C84376", "wrong": "C0805", "url": "https://jlcpcb.com/partdetail/YAGEO-RC0805FR0710KL/C84376"},
+  {"case": "P005", "mpn": "RC1206FR-0710KL", "id": "C132649", "wrong": "C1206", "url": "https://www.lcsc.com/product-detail/C132649.html?s_z=n_q_RC1206FR-0710KL"},
+  {"case": "P012", "mpn": "GRM155R71C104KA88D", "id": "C71629", "wrong": "C104", "url": "https://jlcpcb.com/partdetail/MurataElectronics-GRM155R71C104KA88D/C71629"},
+  {"case": "P041", "mpn": "YC164-JR-0710KL", "id": "C107374", "wrong": "C164", "url": "https://jlcpcb.com/partdetail/Yageo-YC164_JR0710KL/C107374"},
+  {"case": "P059", "mpn": "BSDFN2C031U", "id": "C600818", "wrong": "C031", "url": "https://jlcpcb.com/partdetail/BORN-BSDFN2C031U/C600818"},
+  {"case": "P124", "mpn": "SN74HC595N", "id": "C78711", "wrong": "C595", "url": "https://jlcpcb.com/partdetail/TexasInstruments-SN74HC595N/C78711"},
+  {"case": "P206", "mpn": "EC200U", "id": "C20625612", "wrong": "C200", "url": "https://jlcpcb.com/partdetail/Quectel-EC200U/C20625612"}
+]
