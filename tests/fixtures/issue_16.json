@@ -1,0 +1,215 @@
+[
+  {
+    "finding": "P051-F02",
+    "id": "C83528",
+    "mpn": "1N4148W-7-F",
+    "manufacturer": "Diodes Incorporated",
+    "provenance": {
+      "url": "https://easyeda.com/api/products/C83528/components?version=6.4.19.5",
+      "retrievedAt": "2026-10-18T21:41:50.701Z",
+      "responseSha256": "b65fc3477fafa262f57f6f0e1ed12391eb6a059c70c59671e2698805b82007c9",
+      "uuid": "ea90765d435ffe636ec4c558a921dcc5",
+      "editorVersion": "6.5.3",
+      "updatedAt": 1651823474,
+      "source": "JLCEDA/EasyEDA Official Library",
+      "homepages": [
+        "https://lceda.cn/",
+        "https://easyeda.com"
+      ],
+      "reduction": "Original shape array, BBox, origin and c_para retained unchanged. Only lcsc.number/url and symbol fields retained; package, response wrapper, other metadata and unused header fields omitted."
+    },
+    "expected": {
+      "viewBox": "-26 -11 52 22",
+      "graphics": [
+        {
+          "index": 3,
+          "role": "diode body",
+          "fill": "#111827"
+        }
+      ],
+      "exportSha256": "d747ed5e4eb1d63d9187f6ddf1eee47f2e042cc7a192e151daaaf9f5ec5c8259"
+    },
+    "cadData": {
+      "lcsc": {
+        "number": "C83528",
+        "url": "https://lcsc.com/product-detail/Switching-Diode_DIODES_1N4148W-7-F_1N4148W-7-F_C83528.html"
+      },
+      "dataStr": {
+        "BBox": {
+          "x": -21,
+          "y": -6,
+          "width": 42,
+          "height": 12
+        },
+        "head": {
+          "x": 0,
+          "y": 0,
+          "c_para": {
+            "pre": "D?",
+            "name": "1N4148W-7-F",
+            "package": "SOD-123_L2.7-W1.6-LS3.7-RD-1",
+            "Supplier": "LCSC",
+            "Manufacturer": "DIODES(美台)",
+            "Manufacturer Part": "1N4148W-7-F",
+            "Supplier Part": "C83528",
+            "JLCPCB Part Class": "Extended Part"
+          }
+        },
+        "shape": [
+          "PL~-5 6 -5 -6~#880000~1~0~none~gge20~0",
+          "P~show~0~2~20~0~0~gge21~0^^20~0^^M 20 0 h -15~#880000^^0~2~3~0~A~end~~~#0000FF^^0~11~-1~0~2~start~~~#0000FF^^0~8~0^^0~M 5 -3 L 2 0 L 5 3",
+          "P~show~0~1~-20~0~180~gge28~0^^-20~0^^M -20 0 h 15~#880000^^0~-2~3~0~C~start~~~#0000FF^^0~-11~-1~0~1~end~~~#0000FF^^0~-8~0^^0~M -5 3 L -2 0 L -5 -3",
+          "PT~M 5 -6 L -5 0 L 5 6 Z~#880000~1~0~#880000~gge35~0~"
+        ]
+      }
+    }
+  },
+  {
+    "finding": "P054-F02",
+    "id": "C917479",
+    "mpn": "1N4148-TAP",
+    "manufacturer": "Vishay",
+    "provenance": {
+      "url": "https://easyeda.com/api/products/C917479/components?version=6.4.19.5",
+      "retrievedAt": "2026-10-18T21:41:50.739Z",
+      "responseSha256": "0d5c3879e2984c7e2524a819fdb8ad80a08512fd4e2d82a7884b228142ca9197",
+      "uuid": "b2b2ce71be944720b9a50f5be85427ae",
+      "editorVersion": "6.4.7",
+      "updatedAt": 1607074472,
+      "source": "JLCEDA/EasyEDA Official Library",
+      "homepages": [
+        "https://lceda.cn/",
+        "https://easyeda.com"
+      ],
+      "reduction": "Original shape array, BBox, origin and c_para retained unchanged. Only lcsc.number/url and symbol fields retained; package, response wrapper, other metadata and unused header fields omitted."
+    },
+    "expected": {
+      "viewBox": "373 288 54 24",
+      "graphics": [
+        {
+          "index": 5,
+          "role": "hollow diode body",
+          "fill": "none"
+        }
+      ],
+      "exportSha256": "7cdd6005032597c9e4e2087166df56364eceb99c9465bf10aeeba56097f4a4de"
+    },
+    "cadData": {
+      "lcsc": {
+        "number": "C917479",
+        "url": "https://lcsc.com/product-detail/Switching-Diode_Vishay-Intertech-1N4148-TAP_C917479.html"
+      },
+      "dataStr": {
+        "BBox": {
+          "x": 378,
+          "y": 293,
+          "width": 44,
+          "height": 14
+        },
+        "head": {
+          "x": 400,
+          "y": 300,
+          "c_para": {
+            "pre": "D?",
+            "name": "1N4148-TAP",
+            "package": "DO-35_BD2.0-L4.2-P8.20-D0.5-RD",
+            "Contributor": "LCSC",
+            "Supplier": "LCSC",
+            "Supplier Part": "C917479",
+            "Manufacturer": "VISHAY(威世)",
+            "Manufacturer Part": "1N4148-TAP",
+            "JLCPCB Part Class": "Extended Part"
+          }
+        },
+        "shape": [
+          "P~show~0~2~420~300~0~gge11~0^^420~300^^M 420 300 h -10~#880000^^0~407~303~0~A~end~~~#0000FF^^0~413~299~0~2~start~~~#0000FF^^0~413~300^^0~M 410 297 L 407 300 L 410 303",
+          "P~show~0~1~380~300~180~gge20~0^^380~300^^M 380 300 h 10~#880000^^0~393~303~0~K~start~~~#0000FF^^0~387~299~0~1~end~~~#0000FF^^0~387~300^^0~M 390 303 L 393 300 L 390 297",
+          "PL~395 300 390 300~#880000~1~0~none~gge31~0",
+          "PL~410 300 405 300~#880000~1~0~none~gge32~0",
+          "PL~395 293 395 307~#880000~1~0~none~gge37~0",
+          "PT~M 405 293 L 395 300 L 405 307 Z ~#880000~1~0~none~gge38~0~"
+        ]
+      }
+    }
+  },
+  {
+    "finding": "P181-F06",
+    "id": "C5878870",
+    "mpn": "APG1608SURKC/T",
+    "manufacturer": "Kingbright",
+    "provenance": {
+      "url": "https://easyeda.com/api/products/C5878870/components?version=6.4.19.5",
+      "retrievedAt": "2026-10-18T21:41:50.740Z",
+      "responseSha256": "420b7e86a7a90edee3ecb8aca769e9db6599db32ed687299465a960337a128c8",
+      "uuid": "424902e6ae8e4e7085df6b518ba81ed9",
+      "editorVersion": "6.5.34",
+      "updatedAt": 1691818260,
+      "source": "JLCEDA/EasyEDA Official Library",
+      "homepages": [
+        "https://lceda.cn/",
+        "https://easyeda.com"
+      ],
+      "reduction": "Original shape array, BBox, origin and c_para retained unchanged. Only lcsc.number/url and symbol fields retained; package, response wrapper, other metadata and unused header fields omitted."
+    },
+    "expected": {
+      "viewBox": "374 287 52 35",
+      "graphics": [
+        {
+          "index": 0,
+          "role": "LED body",
+          "fill": "#111827"
+        },
+        {
+          "index": 6,
+          "role": "first LED arrowhead",
+          "fill": "#111827"
+        },
+        {
+          "index": 7,
+          "role": "second LED arrowhead",
+          "fill": "#111827"
+        }
+      ],
+      "exportSha256": "13056fe7f6f759735bb780d0f0b0b534e8083d48fcb216aca5e5099970d7545e"
+    },
+    "cadData": {
+      "lcsc": {
+        "number": "C5878870",
+        "url": ""
+      },
+      "dataStr": {
+        "BBox": {
+          "x": 379,
+          "y": 292,
+          "width": 42,
+          "height": 25
+        },
+        "head": {
+          "x": 400,
+          "y": 300,
+          "c_para": {
+            "pre": "U?",
+            "name": "APG1608SURKC/T",
+            "package": "LED-SMD_L1.6-W0.8-RD",
+            "Contributor": "lcsc",
+            "Supplier": "LCSC",
+            "Supplier Part": "C5878870",
+            "Manufacturer": "Kingbright(今台)",
+            "Manufacturer Part": "APG1608SURKC/T",
+            "JLCPCB Part Class": "Extended Part"
+          }
+        },
+        "shape": [
+          "PT~M 395 294 L 405 300 L 395 307 Z ~#880000~1~0~#880000~gge7~0~",
+          "PL~405 308 405 292~#880000~1~0~none~gge10~0",
+          "P~show~0~2~380~300~180~gge13~0^^380~300^^M 380 300 h 15~#800^^0~399~300~0~A~start~~~#800^^0~391~296~0~2~end~~~#800^^0~392~300^^0~M 395 303 L 398 300 L 395 297",
+          "PL~404 310 411 317~#880000~1~0~none~gge34~0",
+          "PL~408 306 415 313~#880000~1~0~none~gge37~0",
+          "P~show~0~1~420~300~0~gge40~0^^420~300^^M 420 300 h -15~#800^^0~401~300~0~K~end~~~#800^^0~409~296~0~1~start~~~#800^^0~408~300^^0~M 405 297 L 402 300 L 405 303",
+          "PT~M 411 317 L 407 315 L 409 313 Z ~#880000~1~0~#880000~gge61~0~",
+          "PT~M 415 313 L 411 311 L 413 309 Z ~#880000~1~0~#880000~gge64~0~"
+        ]
+      }
+    }
+  }
+]

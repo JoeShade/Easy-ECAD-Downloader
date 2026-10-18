@@ -248,6 +248,8 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
 - EasyEDA-backed pages:
   - fetch the EasyEDA CAD payload
   - synthesize symbol and footprint SVG previews
+  - render symbol `PT` records as escaped native SVG paths, preserving source coordinates and draw order alongside pins, rectangles, `PL`/`PG`, circles and arcs
+  - keep symbol `PT`/`PL`/`PG` paint local to each shape: hex and basic named solid colors use the dark foreground, white uses the preview background, and absent, `none`, transparent or unsupported paints remain unfilled; existing stroke styling stays monochrome
   - derive datasheet availability from the payload
 - Mouser, Farnell, element14, and Newark pages:
   - fetch the SamacSys entry URL

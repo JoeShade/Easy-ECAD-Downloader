@@ -46,6 +46,18 @@ function escapeSvgAttribute(value) {
     .replace(/>/g, "&gt;");
 }
 
+function symbolPreviewFill(value) {
+  const fill = String(value || "").trim().toLowerCase();
+  // Keep the monochrome preview: solid source paint uses the foreground;
+  // white masks underlying geometry with the popup's preview background.
+  if (fill === "white" || fill === "#fff" || fill === "#ffffff") {
+    return "#f8fafc";
+  }
+  return /^(?:#[0-9a-f]{3}(?:[0-9a-f]{3})?|black|silver|gray|maroon|red|purple|fuchsia|green|lime|olive|yellow|navy|blue|teal|aqua)$/.test(fill)
+    ? "#111827"
+    : "none";
+}
+
 function buildSvgDocument(viewBox, body, options = {}) {
   const { background, stroke = "#111827" } = options;
   const bgRect = background
@@ -67,11 +79,13 @@ function buildSymbolPreviewSvg(cadData) {
   }
   const bbox = dataStr.BBox || { x: 0, y: 0, width: 120, height: 80 };
   const pad = 5;
+  const width = toNumber(bbox.width, 120);
+  const height = toNumber(bbox.height, 80);
   const viewBox = {
-    x: bbox.x - pad,
-    y: bbox.y - pad,
-    width: bbox.width + pad * 2,
-    height: bbox.height + pad * 2
+    x: toNumber(bbox.x) - pad,
+    y: toNumber(bbox.y) - pad,
+    width: (width > 0 ? width : 120) + pad * 2,
+    height: (height > 0 ? height : 80) + pad * 2
   };
   const shapes = dataStr.shape || [];
   const svgParts = [];
@@ -84,7 +98,7 @@ function buildSymbolPreviewSvg(cadData) {
       const pinDotFields = (segments[5] || "").split("~");
       const pinPath = String(pinPathFields[0] || "").trim();
       if (pinPath) {
-        svgParts.push(`<path d="${pinPath}" stroke-width="1" />`);
+        svgParts.push(`<path d="${escapeSvgAttribute(pinPath)}" stroke-width="1" />`);
       }
       if (pinDotFields[0] === "show") {
         const cx = toNumber(pinDotFields[1]);
@@ -102,7 +116,15 @@ function buildSymbolPreviewSvg(cadData) {
       const fields = line.split("~").slice(1);
       const points = pointsToSvg(parsePoints(fields[0]));
       const tag = designator === "PG" ? "polygon" : "polyline";
-      svgParts.push(`<${tag} points="${points}" stroke-width="1" />`);
+      svgParts.push(`<${tag} points="${points}" stroke-width="1" fill="${symbolPreviewFill(fields[4])}" />`);
+    } else if (designator === "PT") {
+      const fields = line.split("~").slice(1);
+      const path = String(fields[0] || "").trim();
+      if (path) {
+        // Native SVG preserves curves, relative commands and subpaths that
+        // the separate KiCad exporter's restricted path loop cannot express.
+        svgParts.push(`<path d="${escapeSvgAttribute(path)}" stroke-width="1" fill="${symbolPreviewFill(fields[4])}" />`);
+      }
     } else if (designator === "C") {
       const fields = line.split("~").slice(1);
       const cx = toNumber(fields[0]);
@@ -113,7 +135,7 @@ function buildSymbolPreviewSvg(cadData) {
       const fields = line.split("~").slice(1);
       const path = String(fields[0] || "").trim();
       if (path) {
-        svgParts.push(`<path d="${path}" stroke-width="1" />`);
+        svgParts.push(`<path d="${escapeSvgAttribute(path)}" stroke-width="1" />`);
       }
     }
   }
