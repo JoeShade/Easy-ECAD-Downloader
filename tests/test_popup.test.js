@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import { JSDOM } from "jsdom";
 import { loadContentScript } from "./helpers/content_script_harness.js";
 import cases from "./fixtures/issue_13.json";
+import farnellProducts from "./fixtures/issue_15.json";
 
 import {
   flushAsyncWork,
@@ -154,6 +155,30 @@ function activatePopupTab(state, tabId) {
 }
 
 describe("popup", () => {
+  it.each(farnellProducts)("displays and forwards the full $brand issue #15 identity", async product => {
+    const page = loadContentScript("", { url: product.url,
+      headMarkup: `<meta property="og:description" content="Buy ${product.mpn} - YAGEO - Resistor.">` });
+    const partContext = page.requestContext();
+    const { state, hooks } = await loadPopup();
+    await applyStoredSettings(state);
+    activatePopupTab(state, 7);
+    state.tabMessages[0].callback(partContext);
+    expect(hooks.elements.manufacturerPartNumberEl.textContent).toBe(product.mpn);
+    expect(hooks.elements.partNumberEl.textContent).toBe(product.orderCode);
+    expect(hooks.elements.sourcePartLabelEl.textContent).toBe(product.label);
+    expect(partContext.lookup.manufacturerName).toBe("YAGEO");
+    const params = new URL(partContext.lookup.entryUrl).searchParams;
+    expect(params.get("mpn")).toBe(product.mpn);
+    expect(params.get("mna")).toBe("YAGEO");
+    expect(state.runtimeMessages[0].message).toEqual({ type: "GET_PART_PREVIEWS", partContext });
+    state.runtimeMessages[0].callback({ ok: true, previews: {}, metadata: { datasheetAvailable: false } });
+    await flushAsyncWork();
+    expect(hooks.elements.downloadButton.disabled).toBe(false);
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages[1].message).toMatchObject({ type: "EXPORT_PART", partContext });
+    page.dom.window.close();
+  });
+
   it.each(["0451001.MRL", "RC1206FR-0710KL", "G5V-1 DC5", null])(
     "displays exact detected MPN %s while retaining catalogue-based previews and export", async mpn => {
       const page = loadContentScript(`<dl><dt>LCSC Part #</dt><dd>C132649</dd>

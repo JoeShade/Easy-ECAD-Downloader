@@ -229,7 +229,8 @@ function getQueryParamValue(...keys) {
 function parseFarnellDescriptionProductData() {
   const description =
     getMetaContent("property", "og:description") || getMetaContent("name", "description");
-  const match = description?.match(/Buy\s+(.+?)\s*-\s*(.+?)\s*-\s*/i);
+  // Spaced hyphens delimit fields; internal MPN and manufacturer hyphens stay intact.
+  const match = description?.match(/Buy\s+(.+?)\s+-\s+(.+?)\s+-\s+/i);
   if (!match) {
     return null;
   }
