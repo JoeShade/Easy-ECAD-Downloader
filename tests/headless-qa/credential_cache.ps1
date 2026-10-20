@@ -1,5 +1,5 @@
 # Encrypt credentials for the current user in newly created volatile keys.
-# Console streams here are private parent/child pipes, never terminal output.
+# Console streams here are private parent/child pipes controlled by credential_cache.js.
 param(
   [Parameter(Mandatory = $true)][ValidateSet('Read', 'Write', 'Clear')][string]$Action,
   [Parameter(Mandatory = $true)][ValidatePattern('^[a-f0-9]{64}$')][string]$Scope
@@ -17,6 +17,7 @@ try {
   [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
   Add-Type -AssemblyName System.Security
   $cachePath = 'Software\EasyECADDownloader\HeadlessQaSessions\' + $Scope
+  # Serialize readers and writers; Windows releases an abandoned process's mutex.
   $cacheMutex = [System.Threading.Mutex]::new($false, ('Local\EasyEcadQaSession_' + $Scope))
   try { $ownsMutex = $cacheMutex.WaitOne(5000) }
   catch [System.Threading.AbandonedMutexException] { $ownsMutex = $true }
@@ -35,9 +36,10 @@ try {
         $cacheValues.username.Length -gt 4096 -or $cacheValues.password.Length -gt 4096 -or
         $cacheValues.username.Contains(':')) { throw 'Invalid credentials' }
     $plainBytes = [System.Text.Encoding]::UTF8.GetBytes($cacheInput)
+    # Current-user DPAPI binds encrypted data to this account and checkout scope.
     $cipherBytes = [System.Security.Cryptography.ProtectedData]::Protect($plainBytes, $entropy,
       [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
-    # A fresh GUID prevents an existing nonvolatile key from ignoring Volatile.
+    # A fresh GUID ensures Windows applies Volatile when creating the secret key.
     do {
       $newName = [Guid]::NewGuid().ToString('N')
       $existing = $cacheRoot.OpenSubKey($newName)
@@ -71,6 +73,7 @@ try {
   [Console]::Error.WriteLine('Windows memory-only SamacSys cache operation failed.')
   exit 1
 } finally {
+  # Wipe mutable byte buffers and release references when the helper exits.
   if ($plainBytes) { [Array]::Clear($plainBytes, 0, $plainBytes.Length) }
   if ($cipherBytes) { [Array]::Clear($cipherBytes, 0, $cipherBytes.Length) }
   $cacheInput = $null

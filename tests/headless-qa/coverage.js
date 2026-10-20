@@ -1,10 +1,13 @@
 /*
- * Compact execution coverage. Produced evidence and completed execution never
- * imply that a component or a blocked provider flow was fully inspected.
+ * Summarize produced workflow evidence separately from visual assessment.
+ * Full inspection remains pending until a person assesses the saved artifacts.
  */
 export const assetTypes = { downloadSymbol: /\.kicad_sym$/i, downloadFootprint: /\.kicad_mod$/i,
   downloadModel: /\.(?:step|stp|wrl)$/i, downloadDatasheet: /\.(?:pdf|html)$/i };
 
+// Require completed overall execution, every stage and each expected artifact
+// before claiming live workflow evidence. Visual correctness remains a separate
+// outstanding task even when all automated evidence has been produced.
 export function coverageSummary(result, rendered = null) {
   const stages = result.stages;
   const selected = stages.downloads.selected || [];
@@ -17,7 +20,7 @@ export function coverageSummary(result, rendered = null) {
   const modelLimitations = (rendered?.models || []).filter(model => model.outcome !== "PASS").map(model => model.relativePath);
   const cadAssets = assets.some(asset => asset.verified && /\.(?:kicad_sym|kicad_mod|step|stp|wrl)$/i.test(asset.filename));
   const decodedPreviews = ["symbolPreview", "footprintPreview"].every(id => stages.previews.checks.some(check => check.id === id && check.decoded));
-  const workflowEvidence = result.kind === "live" && !pendingStages.length && !missingAssets.length &&
+  const workflowEvidence = result.kind === "live" && result.execution === "COMPLETED" && !pendingStages.length && !missingAssets.length &&
     !result.diagnostics?.errors && decodedPreviews && inspections.length > 0 && inspections.every(item => item.produced) &&
     Object.values(stages).every(stage => stage.checks.every(check => !["FAIL", "BLOCKED"].includes(check.outcome)));
   return { fullyInspected: false, expected: { stages: required, assetCategories: selected, inspections: rendered ? inspections.length : cadAssets ? null : 0 },

@@ -25,6 +25,12 @@ This file records short implementation notes that supplement, but do not replace
 - `src/service_worker_runtime.js` should hold browser-dependent orchestration, with tests using mocks instead of browser-run end-to-end flows.
 - Source-specific helpers should be testable directly without exposing router internals just for test coverage.
 
+## Optional QA harness
+
+- `tests/headless-qa/` keeps browser acquisition, evidence preservation and KiCad inspection in developer-only modules. Browser-run rendering checks current file sizes and SHA-256 hashes against the verified final-asset inventory.
+- Concurrent JSON saves publish snapshots in call order. Download accounting survives popup closure; temporary acquisition cleanup rechecks preserved bytes after confirmed Chrome exit and retains uncertain files for recovery.
+- `npm run qa:lint` and `npm run qa:smoke` share their Python pins and commands with the offline QA CI job. Native browser/KiCad runs remain opt-in evidence gathering.
+
 ## Current implementation caveats worth preserving
 
 - The popup does not fetch, extract, or convert CAD assets directly; it only requests that work.

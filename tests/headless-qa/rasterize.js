@@ -1,5 +1,5 @@
 /*
- * Rasterize KiCad SVG output using resvg without a Windows Cairo dependency.
+ * Rasterize KiCad SVG output using resvg's native Windows-compatible renderer.
  * Called by the Python renderer with explicit input and output paths.
  */
 import fs from "node:fs/promises";

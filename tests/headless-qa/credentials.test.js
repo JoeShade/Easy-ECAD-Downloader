@@ -1,6 +1,6 @@
 /*
  * Verify visible input, session-only settings and credential-safe evidence.
- * Placeholder credentials never contact an upstream authentication service.
+ * Placeholder credentials exercise terminal and storage doubles locally.
  */
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -18,6 +18,8 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
+// Emit the same keypress events used by readline while observing terminal mode
+// and visible output, keeping these tests independent of an interactive console.
 function terminal() {
   const input = new EventEmitter();
   Object.assign(input, { isTTY: true, isRaw: false, paused: true,
@@ -38,6 +40,7 @@ function memoryCache(initial = null) {
     async write(value) { saved = { ...value }; }, async clear() { saved = null; } };
 }
 
+// Resume after each awaited field so synthetic keypresses reach its new listener.
 async function login(io, action, cache = memoryCache()) {
   const pending = withSamacsysCredentials(true, action, io, cache);
   await Promise.resolve();
@@ -47,6 +50,8 @@ async function login(io, action, cache = memoryCache()) {
   return pending;
 }
 
+// Support both callback- and promise-based storage consumers, including the
+// production settings loader that consumes values provisioned by the harness.
 function storageArea(values) {
   return {
     async get(keys, callback) {

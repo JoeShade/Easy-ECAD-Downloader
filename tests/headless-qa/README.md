@@ -17,7 +17,9 @@ From the repository root:
 ```powershell
 npm.cmd ci
 python -m pip install -r tests/headless-qa/requirements.txt
+python -m pip install -r tests/headless-qa/requirements-lint.txt
 npm.cmd run qa:preflight -- --id preflight-001
+npm.cmd run qa:lint
 npm.cmd run qa:smoke
 ```
 
@@ -55,7 +57,8 @@ It stores independent product-page JSON-LD and labelled fields, final redirects,
 the returned context, displayed popup identifiers, option availability, status,
 and image decoding/fallback states. It waits for the product DOM to settle before
 inspection. Search results, visible login forms, and access-blocked pages stop
-the dependent workflow.
+the dependent workflow. Login classification checks computed visibility and
+ancestor opacity so hidden login dialogs preserve product-page classification.
 
 The harness clears only its new profile's local/session extension storage, sets
 grouped-library mode and `easyECADDownloader` as the library root, selects every
@@ -80,9 +83,20 @@ This establishes retention of known exported entries, not upstream CAD coverage.
 KiCad parsing/rendering is a separate check. Downstream discovery uses verified
 final assets, not historical download events.
 
-The isolated Chrome profile's download-directory preferences preserve
-the extension's filenames; a CDP download override would discard generated
-data-URL filenames on the tested Chrome build. It never
+Completed-download accounting is saved before final popup evidence is captured.
+A closed popup leaves its capture BLOCKED while preserving the download inventory
+and copied assets. Cleanup rechecks acquisition files after Chrome exits; late or
+changed files retain the acquisition directory for recovery.
+
+The isolated Chrome profile's download-directory preferences point to a separate,
+short temporary acquisition directory. This prevents nested evidence paths from
+making Chrome truncate otherwise ordinary filenames on Windows. Final files are
+copied into the run's `downloads/` tree without renaming or changing their bytes;
+size and SHA-256 checks verify both the acquisition and evidence copies. Browser
+events keep their actual acquisition destinations, and preservation metadata
+records both roots. A failed copy is a harness BLOCKED result, and unpreserved
+acquisitions remain available for recovery. A CDP download override would discard
+generated data-URL filenames on the tested Chrome build. The harness never
 calls provider download endpoints or extension conversion functions directly.
 
 Symbol/footprint/3D checkboxes can remain enabled when upstream assets are absent.
@@ -107,12 +121,27 @@ npm.cmd run qa:preflight -- --id preflight-002 --python "C:\Python310\python.exe
 ```
 
 KiCad settings and user-document directories are isolated under the render
-output. Browser profiles are deleted after closing Chrome, including failure
-cleanup. No normal Chrome profile, existing sign-in session, or credentials are
+output. Each browser run uses a unique `easy-ecad-qa-*` profile in the system
+temporary directory, independently of the evidence path. Nesting profiles under
+long campaign/run paths can exceed Windows path limits for Chrome's extension
+storage and fail with `IO error: .../LOCK: File not found.`. Browser downloads use
+their own unique `ecad-dl-*` directory in the system temporary directory; evidence
+copies retain the delivered relative library layout under the selected run.
+Both temporary paths are logged. Profiles are deleted after closing Chrome,
+including failure cleanup. Acquisition directories are removed only when empty
+or all contents have been preserved. Failed preservation and unaccounted partial
+downloads retain that directory with a recovery path in `execution.log`.
+No normal Chrome profile, existing sign-in session, or credentials are
 imported. URLs containing credentials or obvious session query parameters are
 rejected. Diagnostic records omit authorization values, email addresses, image
 data URLs and common secret query parameters. Full page screenshots are saved
 only for classified product pages; blocked/login pages get structured evidence.
+
+Windows automation sandboxes that deny Chrome's GPU/network child processes can
+cause a separate browser startup timeout, even without loading an extension.
+Run the harness in a normal local terminal or through approved native-process
+execution when those subprocess permissions are unavailable. Short profile paths
+address the extension-storage failure; they do not grant process permissions.
 
 ### Reuse SamacSys credentials until Windows restarts
 
@@ -205,9 +234,17 @@ failure and final execution result. Generic fetch/network/preview/export errors
 remain observations with **unknown cause**. Only explicit access evidence, such
 as an authentication requirement or an HTTP access status, establishes an external
 blocker; demonstrated environment/harness timeouts retain their own category.
+Product-page `net::ERR_*` transport errors are navigation `BLOCKED` observations
+with unknown cause: no extension detection, preview or export has run yet.
+SamacSys's sign-in-required message and its entry/preview/ZIP HTTP 401, 403 and 429
+errors are also `BLOCKED`, rather than component failures. Credentials configured
+in the harness authenticate SamacSys ZIP requests; they do not establish distributor
+page access. A passing blank-page preflight does not establish product navigation.
 
 Evidence redaction recursively copies structured objects and arrays before
-serialization. Sensitive keys, URL credentials/query values, authorization text
+serialization. Concurrent saves publish complete snapshots in call order.
+Diagnostic attachment uses stable target IDs to capture startup events once and
+retain current source URLs. Sensitive keys, URL credentials/query values, authorization text
 and image/blob payloads are omitted without modifying component identifiers or
 downloaded assets. It is applied to metadata, redirects, contexts and diagnostics.
 
@@ -231,19 +268,24 @@ back copper/silk, fabrication and courtyard views are exported. Through-hole
 pad layer wildcards also trigger back views. Each inspection records its layers.
 
 The renderer copies the complete download directory into the inspection project
-and embeds each footprint **verbatim** into a temporary board placed beside its
-copy, preserving model blocks, offsets, rotation, scale and directory context.
+and embeds each footprint into a temporary board placed beside its copy,
+preserving model blocks, offsets, rotation, scale and directory context. Legacy
+arc syntax is translated to equivalent start/mid/end syntax only in the embedded
+fixture text because modern boards cannot load legacy angle-based arc records.
+`fixtureNormalizations` records each translation; source files stay unchanged.
 A closed rectangular Edge.Cuts outline is computed from complete circle extents,
 arc sweep extrema, translated primitive coordinates, and rotated pad extents.
 Cubic curves use their conservative control-point hull. Margin is at least 2 mm
-or 15% of the footprint span. Degenerate/nonfinite geometry, unsupported graphic
-types/custom pad primitives, and unexpected root placement are rejected explicitly;
-geometry is never changed to fit the board. Original files are hashed before/after
+or 15% of the footprint span. Native-compatible zero-radius point arcs are retained
+and recorded in `geometryObservations`; they are not repaired. Other malformed or
+nonfinite geometry, unsupported graphic types/custom pad primitives, and unexpected
+root placement are rejected explicitly. Original files are hashed before/after
 rendering, including failed exits. Model paths and
 placements are never corrected to make a render work. The native text fixture
 generator is tested without requiring `pcbnew` bindings.
 
-`pcb render` produces 1200 x 900 top, isometric and side views. KiCad 10.0.1's
+`pcb render` requests 1200 x 900 top, isometric and side views; image checks record
+the actual PNG dimensions returned by the installed KiCad build. KiCad 10.0.1's
 argument parser accepts the positive equivalent `315,0,45` for the isometric
 rotation. A known-good relative WRL reference is calibrated first by rendering
 a synthetic red block and checking that its pixels appear. Calibration failure
@@ -255,7 +297,8 @@ control image: changed pixels establish visible known-good model geometry.
 Every downloaded `.step`, `.stp` and `.wrl` has an explicit model inventory record:
 original relative path/hash, verified-download status, actual footprint references,
 exercise kind, commands/images, outcome and limitations. Primary assembly boards
-preserve the exported footprint verbatim. Additional models use clearly labelled
+preserve exported geometry and model transforms, with the fixture-only arc syntax
+translation recorded above. Additional models use clearly labelled
 **derived-model-inspection** fixtures with a relative reference and identity
 transforms. These unassociated importer fixtures do not establish that an original
 reference works or that a model aligns with a footprint. No association is guessed.
@@ -264,18 +307,31 @@ limitation. File existence, command success and decoded images do not prove that
 general model geometry appeared. Model results remain REVIEW for visual assessment.
 All derived fixture changes occur in the inspection project; originals stay untouched.
 
+Derived model outlines scale to conservative source-model bounds when available.
+Transparent camera-fit probes check image-edge clearance and retain bounded zoom
+attempts before the final opaque view. Exhausted fitting remains REVIEW with an
+outstanding inspection. Image containment does not prove that the expected model
+geometry appeared or that its association, dimensions or placement are correct.
+
 Run the known-good rendering fixture separately from live integration:
 
 ```powershell
 python tests/headless-qa/render.py --input "tests/headless-qa/fixtures/known-good" --output ".qa-output/offline-fixture-001/renders" --project ".qa-output/offline-fixture-001/inspection-project"
 ```
 
+`qa:lint` runs pinned Ruff's default correctness rules (E4, E7, E9 and F) on the
+QA Python implementation and tests. `npm run lint` covers QA JavaScript. Install
+`requirements-lint.txt` alongside the image requirements before these local checks.
+The `Offline QA harness` CI job runs Python linting and the same JS/Python smoke
+command on Node 24 and Python 3.10, with browser downloads skipped at installation.
+Native Chrome/KiCad integration remains local opt-in validation.
+
 `qa:smoke` runs deterministic JS and Python checks with no Chrome, KiCad or
 network required: atomic persistence, exclusive run isolation, download
 containment/completion, bounded timeouts (including a hung observation),
 structural redaction, merged-library retention/collisions, identifier comparisons,
-runtime capture/cleanup and classification, partial coverage, exact fixture
-preservation, circle/arc/rotated-pad bounds, back views, complete model inventory,
+runtime capture/cleanup and classification, partial coverage, download preservation,
+legacy-arc compatibility, circle/arc/rotated-pad bounds, camera fitting, back views, complete model inventory,
 visible credential entry, session-only settings, cache reuse/clearing and credential cleanup/redaction.
 The separate command above exercises real KiCad rendering of synthetic assets.
 
@@ -310,7 +366,8 @@ and `NOT_RUN` describe execution; check outcomes are separate:
 An overall execution of `COMPLETED` does not mean all checks passed or all stages
 ran. Read stage execution plus outcomes. A detection FAIL can coexist with later
 completed popup/download stages; a download failure can leave rendering NOT_RUN.
-Partial completed CAD downloads are still rendered. Exit codes are 0 for
+Partial completed CAD downloads are still rendered. A failure between stages
+retains a top-level failure finding and a nonzero exit. Exit codes are 0 for
 PASS/REVIEW-only results, 1 for FAIL, and 2 for BLOCKED-only results in the underlying
 runner; npm on Windows may normalize a nonzero script exit to 1.
 
@@ -320,8 +377,11 @@ event-based `downloads.files` inventory with one record per final file. Metadata
 and results are redacted structurally. Renderer `models` inventories every model;
 `missingModelReferences` records unresolved original references. Command indices
 inside model exercises refer to the renderer's `commands` array. `--inventory
-<result.json>` restricts rendering to schema-2 verified final assets; omit this
-flag for standalone rendering of a supplied directory. Existing schema-1 evidence
+<result.json>` requires schema 2, safe relative paths, explicit verification and
+matching current file sizes and SHA-256 hashes before rendering. Malformed symbol
+libraries and model references retain outstanding inspection records while valid
+assets keep their own coverage. Omit this flag for standalone rendering of a
+supplied directory. Existing schema-1 evidence
 is preserved rather than migrated.
 
 Run and renderer `coverage` summarize expected, attempted, produced and outstanding

@@ -38,6 +38,7 @@ This section summarizes the current `Development` branch compared with `main` as
 
 ### Fixed
 
+- Hardened QA evidence persistence, failure exits, popup-loss accounting, post-browser download cleanup, malformed CAD inspection records, and renderer inventory verification; added regression coverage and Python lint/smoke checks in CI.
 - Fixed issue #16's missing EasyEDA symbol preview paths, restoring captured diode bodies and LED arrowheads while preserving filled and hollow `PT`/`PL`/`PG` graphics without changing CAD exports.
 - Fixed issue #17's EasyEDA model-selection boundary: wait for ID-scoped browser completion, reference delivered STEP/WRL basenames after renames, fall back from failed WRL downloads, and omit references when model completion or the requested directory layout cannot be verified. Added bounded lifecycle handling and regression coverage for all eight reported names.
 - Recognized the LCSC `MPN` label in supported product fields for issue #14, preserving exact manufacturer identifiers, catalogue association checks and exports when MPN metadata is unavailable.

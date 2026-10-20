@@ -11,7 +11,10 @@ import { identifierChecks } from "./identifiers.js";
 import { classifyFailure } from "./diagnostics.js";
 import { assetTypes, coverageSummary } from "./coverage.js";
 import { withSamacsysCredentials } from "./credentials.js";
+import { preserveDownloads } from "./download_preservation.js";
 
+// Record installed versions and Git state beside each run so its evidence can
+// be traced to the working tree that produced it.
 export async function metadata(run, requestedUrl = null) {
   const manifest = JSON.parse(await fs.readFile(path.join(repoRoot, "manifest.json"), "utf8"));
   const puppeteer = JSON.parse(await fs.readFile(path.join(repoRoot, "node_modules/puppeteer/package.json"), "utf8"));
@@ -25,6 +28,8 @@ export async function metadata(run, requestedUrl = null) {
   return data;
 }
 
+// Rendering prerequisites are independent of browser checks; retain a blocked
+// environment observation while allowing the browser stages to gather evidence.
 export async function pythonPreflight(run, opts, meta) {
   const args = ["tests/headless-qa/render.py", "--preflight", "--output", path.join(run.dir, "renders/environment"),
     "--timeout", String(opts["render-timeout"] / 1000)];
@@ -40,6 +45,7 @@ export async function pythonPreflight(run, opts, meta) {
   return record.code === 0;
 }
 
+// Detection owns page/context agreement; the popup stage adds display checks.
 async function compareIdentifiers(run, detected, reference, popup = null) {
   for (const check of identifierChecks(detected, reference, popup, run.result.stages.detection.website)) {
     if (popup && !check.name.startsWith("popup.")) continue;
@@ -47,7 +53,9 @@ async function compareIdentifiers(run, detected, reference, popup = null) {
   }
 }
 
-async function collectDownloads(context, popup, run, opts) {
+// Persist browser accounting before reading the popup again: Chrome can close
+// an action popup while completed downloads remain available in the worker.
+export async function collectDownloads(context, popup, run, opts) {
   const selected = await popup.evaluate(() => {
     const result = [];
     for (const id of ["downloadSymbol", "downloadFootprint", "downloadModel", "downloadDatasheet"]) {
@@ -76,6 +84,8 @@ async function collectDownloads(context, popup, run, opts) {
   });
   run.result.stages.downloads.selected = selected;
   run.result.stages.downloads.settings = context.settings;
+  run.result.stages.downloads.acquisitionDirectory = context.downloadRoot;
+  run.result.stages.downloads.evidenceDirectory = path.join(run.dir, "downloads");
   await run.save();
   if ((await popupState(popup)).downloadDisabled) throw issue("Popup download button is disabled", "extension-observation");
   let response = null;
@@ -91,11 +101,22 @@ async function collectDownloads(context, popup, run, opts) {
       items.every(item => ["complete", "interrupted"].includes(item.state)), opts["download-timeout"]);
   } finally {
     const items = await downloadItems(context);
-    const accounting = await accountDownloads(items, path.join(run.dir, "downloads"), { settings: context.settings, extensionId: context.id });
-    Object.assign(run.result.stages.downloads, { response: redact(response),
-      ...accounting, popup: redact(await popupState(popup)) });
+    const observed = await accountDownloads(items, context.downloadRoot, { settings: context.settings, extensionId: context.id });
+    const accounting = await preserveDownloads(observed, context.downloadRoot, path.join(run.dir, "downloads"));
+    Object.assign(run.result.stages.downloads, { response: redact(response), ...accounting });
     await run.save();
-    await safeScreenshot(popup, run, "browser/popup-after-download.png", "downloads", { fullPage: true });
+    context.downloadsPreserved = accounting.preservation.cleanupSafe && Boolean(response) &&
+      items.length >= response.downloadCount && items.every(item => ["complete", "interrupted"].includes(item.state));
+    await run.check("downloads", accounting.preservation.outcome,
+      "Browser-delivered files preserved under the evidence directory with matching hashes and filenames",
+      { name: "download.preservation", ...accounting.preservation });
+    try {
+      run.result.stages.downloads.popup = redact(await popupState(popup));
+      await safeScreenshot(popup, run, "browser/popup-after-download.png", "downloads", { fullPage: true });
+    } catch (error) {
+      await run.check("downloads", "BLOCKED", "Final popup evidence could not be captured",
+        { name: "download.popupEvidence", category: "harness", error: redact(error.message) });
+    }
     for (const event of accounting.events) await run.check("downloads", event.outcome,
       "Browser download event retained; superseded contents assessed through final asset", { name: "download.event", ...event });
     for (const asset of accounting.assets) {
@@ -108,7 +129,7 @@ async function collectDownloads(context, popup, run, opts) {
   }
   const state = run.result.stages.downloads;
   if (!response?.ok) {
-    const error = response?.error || state.popup.status || "Export did not succeed";
+    const error = response?.error || state.popup?.status || "Export did not succeed";
     const finding = classifyFailure(error, { category: "extension-observation" });
     await run.check("downloads", finding.outcome, redact(error), finding);
   }
@@ -120,9 +141,19 @@ async function collectDownloads(context, popup, run, opts) {
   }
 }
 
+// Stage checks normally explain failures. A browser failure between stages can
+// leave only execution=FAILED, which still needs a saved finding and failure exit.
 export async function finish(run) {
   run.result.finishedAt = now();
-  const outcomes = Object.values(run.result.stages).flatMap(stage => stage.checks.map(check => check.outcome));
+  const stages = Object.values(run.result.stages);
+  const outcomes = stages.flatMap(stage => stage.checks.map(check => check.outcome));
+  const failedStages = stages.filter(stage => stage.execution === "FAILED");
+  const unexplainedFailure = failedStages.some(stage => !stage.checks.some(check => ["FAIL", "BLOCKED"].includes(check.outcome))) ||
+    (run.result.execution === "FAILED" && failedStages.length === 0);
+  if (unexplainedFailure) {
+    run.result.failure = { outcome: "FAIL", category: "harness", message: run.result.error || "Harness execution failed outside a recorded stage" };
+    outcomes.push("FAIL");
+  }
   run.result.outcomes = [...new Set(outcomes)];
   run.result.coverage = coverageSummary(run.result, run.result.stages.rendering.details);
   await run.save();
@@ -141,6 +172,8 @@ async function main() {
   await withSamacsysCredentials(opts["samacsys-login"], credentials => executeRun(opts, credentials));
 }
 
+// Stages retain partial evidence independently. Browser cleanup completes before
+// verified CAD assets enter the separate Python/KiCad rendering phase.
 async function executeRun(opts, credentials) {
   const run = await createRun(opts.out, opts.id);
   const meta = await metadata(run, opts.url);
@@ -158,7 +191,8 @@ async function executeRun(opts, credentials) {
       credentials = null;
       if (interrupted) throw issue("Run interrupted by terminal", "harness");
       Object.assign(meta, { chrome: await context.browser.version(), extensionId: context.id,
-        effectiveSettings: context.settings, authentication: context.authentication });
+        effectiveSettings: context.settings, authentication: context.authentication,
+        browserDownloadRoot: context.downloadRoot, evidenceDownloadRoot: path.join(run.dir, "downloads") });
       await atomicJson(path.join(run.dir, "metadata.json"), meta);
       await run.check("environment", "PASS", "Headless Chrome loaded actual extension and live service worker in isolated profile");
     });
@@ -219,6 +253,7 @@ async function executeRun(opts, credentials) {
     await run.stage("downloads", () => collectDownloads(context, popup, run, opts));
   } catch (error) {
     run.result.execution = "FAILED";
+    run.result.error = redact(error.message);
     await run.log("integration-stopped", { message: error.message });
   } finally {
     try { await closeBrowser(context, run); }

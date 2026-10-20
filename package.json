@@ -13,7 +13,8 @@
     "qa:preflight": "node tests/headless-qa/preflight.js",
     "qa:run": "node tests/headless-qa/run.js",
     "qa:auth": "node tests/headless-qa/auth.js",
-    "qa:smoke": "vitest run tests/headless-qa && python -m unittest discover -s tests/headless-qa -p test_render.py",
+    "qa:lint": "python -m ruff check --cache-dir .qa-output/cache/ruff tests/headless-qa",
+    "qa:smoke": "vitest run tests/headless-qa && python -m unittest discover -s tests/headless-qa -p test_*.py",
     "validate": "npm run lint && npm test && npm run audit && git diff --check"
   },
   "devDependencies": {

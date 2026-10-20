@@ -13,6 +13,8 @@ function label(value) {
   return String(value || "").replace(/[.:#]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+// Gather independently observed page values and deduplicate by comparison rules.
+// Multiple distinct candidates remain visible so callers can flag ambiguity.
 export function referenceIdentifiers(reference, provider) {
   const fields = reference?.fields || [], products = reference?.products || [];
   const source = fields.filter(field => /^(?:(?:lcsc|jlcpcb|mouser|farnell|element14|newark) (?:part|no)|order code)/.test(label(field.label))).map(field => field.value);
@@ -44,6 +46,9 @@ export function sourceLabelConvention(context, website = "") {
   return null;
 }
 
+// Produce separate checks for detection/page agreement, popup/detection agreement
+// and the documented distributor label. Missing or conflicting evidence requires
+// review; one authoritative reference supports a definite match or mismatch.
 export function identifierChecks(context, reference, popup = null, website = "") {
   const checks = [], refs = referenceIdentifiers(reference, context?.provider);
   const compare = (name, actual, candidates, kind = "identifier", unavailable = null) => {

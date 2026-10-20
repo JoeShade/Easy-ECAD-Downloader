@@ -36,6 +36,7 @@ This repository is a compact browser extension that detects supported distributo
 - Prefer regression tests for bug fixes.
 - Use test-only harnesses, mocks, fixtures, and loaders instead of production refactors for testability.
 - Run `npm run lint` for JavaScript source or test changes.
+- For QA harness Python changes, install its pinned image/lint requirements and run `npm run qa:lint` plus `npm run qa:smoke` as described in `tests/headless-qa/README.md`.
 - Run targeted tests while iterating.
 - Run `npm run validate` before finalizing when Node/npm are available.
 

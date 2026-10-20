@@ -1,7 +1,7 @@
 /*
  * Keep browser events separate from final files. Only the configured grouped
  * symbol library permits overwrites; content hashes/timestamps establish the
- * applicable final write without relying on download search result order.
+ * applicable final write independently of download search result order.
  */
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -9,6 +9,8 @@ import { createHash } from "node:crypto";
 
 export const sha256 = content => createHash("sha256").update(content).digest("hex");
 
+// Read balanced S-expressions and collect only top-level symbols; nested symbols
+// describe units and drawing styles within those entries.
 export function symbolEntries(text) {
   const tokens = String(text).match(/"(?:\\.|[^"\\])*"|[()]|[^\s()]+/g) || [];
   const stack = [];
@@ -37,22 +39,29 @@ export function symbolEntries(text) {
 }
 
 export function symbolDownloadEvidence(item) {
-  let text = item.symbolLibraryText;
-  if (!text && /\.kicad_sym$/i.test(item.filename) && item.symbolDataUrl?.startsWith("data:")) {
-    const match = item.symbolDataUrl.match(/^data:[^,]*?(;base64)?,([\s\S]*)$/);
-    if (match) text = match[1] ? Buffer.from(match[2], "base64").toString("utf8") : decodeURIComponent(match[2]);
+  // A broken payload remains evidence for this event while accounting continues
+  // for other files. Decoding and parsing share that failure boundary.
+  try {
+    let text = item.symbolLibraryText;
+    if (!text && /\.kicad_sym$/i.test(item.filename) && item.symbolDataUrl?.startsWith("data:")) {
+      const match = item.symbolDataUrl.match(/^data:[^,]*?(;base64)?,([\s\S]*)$/);
+      if (match) text = match[1] ? Buffer.from(match[2], "base64").toString("utf8") : decodeURIComponent(match[2]);
+    }
+    if (typeof text !== "string") return {};
+    return { contentHash: sha256(Buffer.from(text)), expectedEntries: symbolEntries(text), expectationSource: "generated download payload" };
   }
-  if (typeof text !== "string") return {};
-  try { return { contentHash: sha256(Buffer.from(text)), expectedEntries: symbolEntries(text), expectationSource: "generated download payload" }; }
   catch (error) { return { payloadError: error.message }; }
 }
 
+// Grouped mode derives its one overwrite-eligible library from validated segments.
 function groupedDestination(settings) {
   const root = settings?.libraryDownloadRoot?.replaceAll("\\", "/");
   if (settings?.downloadIndividually !== false || !root || root.split("/").some(segment => !segment || [".", ".."].includes(segment))) return null;
   return `${root}/${root.split("/").at(-1)}.kicad_sym`;
 }
 
+// Matching payload bytes establish a final write even when downloads overlapped.
+// Otherwise only a write starting after every other completion establishes order.
 function chooseFinal(completed, fileHash, intentional) {
   if (!completed.length) return { event: null, ordering: "NO_COMPLETED_WRITE" };
   if (completed.length === 1) return { event: completed[0], ordering: "SINGLE_COMPLETED_WRITE" };
@@ -68,6 +77,13 @@ function chooseFinal(completed, fileHash, intentional) {
     { event: null, ordering: "UNKNOWN; overlapping or missing timestamps/content evidence" };
 }
 
+function containedPath(root, filename) {
+  const relative = path.relative(root, filename);
+  return Boolean(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+// Reconcile every event with one final file per destination. The file hash and
+// known symbol names establish retention; unrelated path collisions remain failures.
 export async function accountDownloads(items, directory, { settings, expectedEntries, extensionId } = {}) {
   const events = [], assets = [];
   const expectedDestination = groupedDestination(settings);
@@ -81,11 +97,10 @@ export async function accountDownloads(items, directory, { settings, expectedEnt
   }
   for (const { destination, items: writes } of groups.values()) {
     const relative = path.relative(root, destination);
-    let contained = Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+    let contained = containedPath(root, destination);
     const stat = contained ? await fs.stat(destination).catch(() => null) : null;
     if (stat) {
-      const resolved = path.relative(root, await fs.realpath(destination));
-      contained = contained && !resolved.startsWith("..") && !path.isAbsolute(resolved);
+      contained = containedPath(root, await fs.realpath(destination));
     }
     const relativePath = contained ? relative.replaceAll(path.sep, "/") : null;
     const intentional = Boolean(relativePath && expectedDestination && relativePath.toLowerCase() === expectedDestination.toLowerCase() &&

@@ -1,6 +1,6 @@
 /*
  * Deterministic harness checks for evidence durability, download accounting,
- * exclusive run isolation and bounded polling. No live services are contacted.
+ * exclusive run isolation and bounded polling using local files and browser stubs.
  */
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -209,6 +209,26 @@ describe("headless QA evidence", () => {
     expect(classifyFailure("Failed to fetch; network failed")).toMatchObject({ outcome: "FAIL", cause: "unknown", category: "runtime-observation" });
     expect(classifyFailure("SamacSys ZIP requires sign-in; HTTP 401")).toMatchObject({ outcome: "BLOCKED", category: "external-access" });
     expect(classifyFailure("Timed out", { category: "harness" })).toMatchObject({ outcome: "BLOCKED", category: "harness" });
+  });
+  it.each([
+    "Mouser/SamacSys download requires you to be signed in before CAD files can be downloaded.",
+    "SamacSys ZIP request failed: 403",
+    "SamacSys ZIP request failed: 429",
+    "SamacSys entry request failed: 401",
+    "SamacSys preview page request failed: 403",
+    "SamacSys preview request failed: 429"
+  ])("recognizes the production access restriction: %s", message => {
+    expect(classifyFailure(message, { category: "extension-observation" }))
+      .toEqual({ outcome: "BLOCKED", category: "external-access", cause: "explicit access restriction" });
+  });
+  it("distinguishes navigation transport blockers from actual extension fetch failures", () => {
+    const message = "net::ERR_HTTP2_PROTOCOL_ERROR at https://example.test/product";
+    expect(classifyFailure(message, { category: "browser-observation" }))
+      .toEqual({ outcome: "BLOCKED", category: "browser-observation", cause: "unknown" });
+    expect(classifyFailure(message, { category: "extension-observation" }))
+      .toEqual({ outcome: "FAIL", category: "extension-observation", cause: "unknown" });
+    expect(classifyFailure("Failed to fetch", { category: "extension-observation" }).outcome).toBe("FAIL");
+    expect(classifyFailure("SamacSys ZIP request failed: 404").outcome).toBe("FAIL");
   });
   it("persists bounded runtime warnings/exceptions with safe source context", async () => {
     const run = await createRun(await tempDir(), "diagnostics");

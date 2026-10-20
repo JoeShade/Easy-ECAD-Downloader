@@ -1,0 +1,2 @@
+# Pin the optional QA Python linter for matching local and CI checks.
+ruff==0.15.17

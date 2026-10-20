@@ -1,19 +1,36 @@
-"""Render untouched downloaded libraries and all footprints with the KiCad 10 CLI."""
+"""Plan and render supplied CAD assets with KiCad while preserving original bytes.
+
+fixture.py owns board construction; model_inspection.py owns model accounting.
+Command completion and image decoding leave visual correctness for human review.
+"""
 import argparse
 import json
+import math
 import shutil
 import sys
 from pathlib import Path
 
 from fixture import children, create_board, parse_sexpr, UnsupportedGeometry
-from render_support import Evidence, hashes, now
+from render_support import Evidence, hashes, now, verified_download_paths
 from model_inspection import (associate_models, derived_model_fixture, final_model_outcomes,
-                              footprint_views, model_inventory)
+                              footprint_views, image_framing, model_inventory, scene_framing_hint)
 
 HERE = Path(__file__).resolve().parent
 
 
+def symbol_entries(parsed):
+    """Require named, distinct top-level entries before planning library inspections."""
+    entries = children(parsed, "symbol")
+    if parsed[0] != "kicad_symbol_lib" or not entries:
+        raise ValueError("Symbol library has no entries")
+    names = [entry[1] if len(entry) > 1 else None for entry in entries]
+    if any(not isinstance(name, str) or not name for name in names) or len(set(names)) != len(names):
+        raise ValueError("Symbol library has missing or duplicate entry names")
+    return names
+
+
 def svg_images(evidence, directory):
+    """Keep SVG originals and record decoded raster copies as separate evidence."""
     files = sorted(directory.rglob("*.svg"))
     if not files:
         evidence.check("FAIL", "KiCad did not produce SVG files", evidence=str(directory))
@@ -29,19 +46,46 @@ def svg_images(evidence, directory):
 
 
 def pcb_view(evidence, cli, board, output, view):
+    """Fit a transparent silhouette before rendering the same camera with a background."""
     output.parent.mkdir(parents=True, exist_ok=True)
     angles = ["--rotate", "315,0,45"] if view == "isometric" else []
     side = "right" if view == "side" else "top"
-    record = evidence.command([cli, "pcb", "render", "--output", output, "--width", "1200", "--height", "900",
-                               "--side", side, "--background", "opaque", *angles, board], cwd=board.parent)
+    # KiCad's default camera fits the board outline. Source hints account for
+    # elevated or offset models; silhouette probes then establish image margins.
+    scene = scene_framing_hint(board)
+    attempts, zoom, framing = [], scene["zoom"], {"contained": False}
+    common = [cli, "pcb", "render", "--width", "1200", "--height", "900", "--side", side, *angles]
+    for attempt in range(7):
+        probe = output.with_name(f"{output.stem}.fit-{attempt}.png")
+        record = evidence.command([*common, "--output", probe, "--background", "transparent", "--zoom", str(zoom), board], cwd=board.parent)
+        detail = {"zoom": zoom, "image": str(probe), "exitCode": record.get("exitCode")}
+        attempts.append(detail)
+        if record.get("exitCode") != 0:
+            record.update(imageDecoded=False, framing={"contained": False, "attempts": attempts})
+            return record
+        framing = image_framing(probe)
+        detail.update(framing)
+        if framing["contained"]:
+            break
+        zoom /= 2
+    # At the bounded fallback limit retain the last tested camera. Silhouette
+    # containment establishes framing; model appearance remains a visual review.
+    zoom = attempts[-1]["zoom"]
+    record = evidence.command([*common, "--output", output, "--background", "opaque", "--zoom", str(zoom), board], cwd=board.parent)
+    record["framing"] = {**framing, "zoom": zoom, "attempts": attempts, "sceneHint": scene}
     if record.get("exitCode") == 0:
         record["imageDecoded"] = evidence.image(output)
     else:
         record["imageDecoded"] = False
+    if record["imageDecoded"] and not framing["contained"]:
+        evidence.check("REVIEW", "Camera framing could not establish a clear silhouette margin; full appearance remains outstanding",
+                       category="harness", evidence=str(output), framing=record["framing"])
+    evidence.save()
     return record
 
 
 def calibrate(evidence, cli, project):
+    """Exercise known WRL and STEP geometry to establish fixture/importer prerequisites."""
     from PIL import Image, ImageChops
     root = project / "calibration"
     shutil.copytree(HERE / "fixtures" / "known-good", root)
@@ -83,6 +127,7 @@ def calibrate(evidence, cli, project):
 
 
 def inspection(evidence, identifier, kind, **details):
+    """Keep one planned record per stable inspection ID across planning and execution."""
     records = evidence.data.setdefault("coverage", {}).setdefault("inspections", [])
     existing = next((record for record in records if record["id"] == identifier), None)
     if existing:
@@ -94,6 +139,7 @@ def inspection(evidence, identifier, kind, **details):
 
 
 def assembly_views(evidence, cli, board, prefix, output):
+    """Record each assembly camera independently so partial failures retain coverage."""
     records, images, commands = [], [], []
     for view in ["top", "isometric", "side"]:
         item = inspection(evidence, f"{prefix}.{view}", "assembly", view=view)
@@ -101,7 +147,8 @@ def assembly_views(evidence, cli, board, prefix, output):
         before = len(evidence.data["commands"])
         image = output / f"{view}.png"
         record = pcb_view(evidence, cli, board, image, view)
-        item.update(produced=bool(record.get("imageDecoded")), images=[str(image)] if image.is_file() else [],
+        item.update(produced=bool(record.get("imageDecoded") and record.get("framing", {}).get("contained")),
+                    framing=record.get("framing"), images=[str(image)] if image.is_file() else [],
                     commands=list(range(before, len(evidence.data["commands"]))))
         records.append(record)
         commands.extend(item["commands"])
@@ -113,6 +160,7 @@ def assembly_views(evidence, cli, board, prefix, output):
 
 
 def update_coverage(evidence):
+    """Summarize produced evidence while keeping visual inspection explicitly pending."""
     coverage = evidence.data.setdefault("coverage", {})
     records = coverage.setdefault("inspections", [])
     coverage.update(expected=len(records), attempted=sum(item["attempted"] for item in records),
@@ -125,15 +173,15 @@ def update_coverage(evidence):
 
 
 def plan_inspections(evidence, source, verified_paths=None):
-    eligible = lambda file: verified_paths is None or file.relative_to(source).as_posix() in verified_paths
+    """Plan eligible assets before preflight, retaining malformed files as outstanding."""
+    def eligible(file):
+        return verified_paths is None or file.relative_to(source).as_posix() in verified_paths
     for index, library in enumerate(sorted(file for file in source.rglob("*.kicad_sym") if eligible(file))):
         try:
             parsed = parse_sexpr(library.read_text(encoding="utf-8-sig"))
-            entries = children(parsed, "symbol")
-            if not entries:
-                raise ValueError("No symbol entries")
+            entries = symbol_entries(parsed)
             for entry_index, entry in enumerate(entries):
-                inspection(evidence, f"symbol-{index}.{entry_index}", "symbol", entry=entry[1])
+                inspection(evidence, f"symbol-{index}.{entry_index}", "symbol", entry=entry)
         except (ValueError, OSError):
             inspection(evidence, f"symbol-{index}.unparsed", "symbol", file=library.relative_to(source).as_posix())
     footprints = sorted(file for file in source.rglob("*.kicad_mod") if eligible(file))
@@ -155,6 +203,7 @@ def plan_inspections(evidence, source, verified_paths=None):
 
 
 def render_assets(evidence, cli, source, project, verified_paths=None):
+    """Inspect project copies and account for every model while preserving source hashes."""
     if not source.is_dir():
         raise ValueError("Input download directory does not exist")
     if source == project or source in project.parents or source == evidence.output or source in evidence.output.parents:
@@ -162,6 +211,8 @@ def render_assets(evidence, cli, source, project, verified_paths=None):
     if any(file.is_symlink() for file in source.rglob("*")):
         raise ValueError("Input symlinks are not supported")
     original_hashes = hashes(source)
+    if "inputHashes" in evidence.data and evidence.data["inputHashes"] != original_hashes:
+        raise ValueError("Downloaded originals changed before rendering")
     evidence.data["inputHashes"] = original_hashes
     evidence.data["models"] = model_inventory(source, original_hashes, verified_paths)
     inventory = evidence.data["models"]
@@ -171,7 +222,8 @@ def render_assets(evidence, cli, source, project, verified_paths=None):
         evidence.check("PASS" if file.stat().st_size else "FAIL", "Downloaded file exists and is nonempty", evidence=relative)
     copied = project / "assets"
     shutil.copytree(source, copied)
-    eligible = lambda file: verified_paths is None or file.relative_to(copied).as_posix() in verified_paths
+    def eligible(file):
+        return verified_paths is None or file.relative_to(copied).as_posix() in verified_paths
     symbols = sorted(file for file in copied.rglob("*.kicad_sym") if eligible(file))
     footprints = sorted(file for file in copied.rglob("*.kicad_mod") if eligible(file))
     evidence.data["missingModelReferences"] = associate_models(inventory, footprints, copied, original=source)
@@ -194,9 +246,7 @@ def render_assets(evidence, cli, source, project, verified_paths=None):
     for index, library in enumerate(symbols):
         try:
             parsed = parse_sexpr(library.read_text(encoding="utf-8-sig"))
-            entries = [node[1] for node in children(parsed, "symbol")]
-            if not entries:
-                raise ValueError("Symbol library has no entries")
+            entries = symbol_entries(parsed)
             for entry_index, entry in enumerate(entries):
                 item = inspection(evidence, f"symbol-{index}.{entry_index}", "symbol", entry=entry)
                 item["attempted"] = True
@@ -287,12 +337,14 @@ def main():
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--inventory", type=Path, help="Schema 2 run result; render only verified final assets")
     args = parser.parse_args()
-    if args.timeout <= 0:
-        parser.error("Timeout must be positive")
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error("Timeout must be finite and positive")
     if (args.output / "render-result.json").exists():
         parser.error("Output already contains evidence; choose a fresh output directory")
     if not args.preflight and not args.input:
         parser.error("--input is required unless --preflight is supplied")
+    if args.inventory and not args.input:
+        parser.error("--input is required with --inventory")
     if args.input:
         original = args.input.resolve()
         targets = [args.output.resolve(), (args.project or args.output.parent / (args.output.name + "-inspection-project")).resolve()]
@@ -305,7 +357,7 @@ def main():
         verified_paths = None
         if args.inventory:
             report = json.loads(args.inventory.read_text(encoding="utf-8-sig"))
-            verified_paths = {asset["relativePath"] for asset in report["stages"]["downloads"]["assets"] if asset["verified"]}
+            verified_paths = verified_download_paths(report, args.input)
         if args.input and args.input.is_dir():
             evidence.data["inputHashes"] = hashes(args.input.resolve())
             evidence.data["models"] = model_inventory(args.input.resolve(), evidence.data["inputHashes"], verified_paths)

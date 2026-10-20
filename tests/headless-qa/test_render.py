@@ -1,10 +1,13 @@
-"""Offline fixture and rendering failure checks; no KiCad installation required."""
+"""Check fixture geometry, immutable downloads and renderer failure accounting.
+
+Native rendering is mocked so these regressions run with Python alone.
+"""
 import tempfile
 import unittest
 from pathlib import Path
 
-from fixture import bounds, children, create_board, model_files, parse_sexpr
-from render_support import Evidence, atomic_json, discover_cli, hashes, redact
+from fixture import bounds, children, create_board, model_files, normalize_legacy_arcs, parse_sexpr
+from render_support import Evidence, atomic_json, discover_cli, hashes, redact, verified_download_paths
 from model_inspection import associate_models, derived_model_fixture, footprint_views, model_inventory
 
 HERE = Path(__file__).resolve().parent
@@ -12,6 +15,104 @@ SAMPLE = HERE / "fixtures" / "known-good" / "fixture.pretty" / "qa_block.kicad_m
 
 
 class FixtureTests(unittest.TestCase):
+    def test_inventory_rechecks_current_bytes_before_authorizing_browser_assets(self):
+        import copy
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            asset = root / 'part.kicad_mod'
+            asset.write_bytes(b'original')
+            report = {'schemaVersion': 2, 'stages': {'downloads': {'assets': [
+                {'relativePath': asset.name, 'verified': True, 'size': asset.stat().st_size,
+                 'sha256': hashes(root)[asset.name]},
+                {'relativePath': None, 'verified': False}
+            ]}}}
+            self.assertEqual(verified_download_paths(report, root), {asset.name})
+            asset.write_bytes(b'modified')
+            with self.assertRaisesRegex(ValueError, 'size or SHA-256'):
+                verified_download_paths(report, root)
+            asset.write_bytes(b'original')
+            for change in ({'relativePath': '../part.kicad_mod'}, {'relativePath': 'C:/part.kicad_mod'},
+                           {'relativePath': 'nested/../part.kicad_mod'}, {'size': True},
+                           {'verified': 'true'}, {'sha256': 'invalid'}):
+                malformed = copy.deepcopy(report)
+                malformed['stages']['downloads']['assets'][0].update(change)
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    verified_download_paths(malformed, root)
+            report['schemaVersion'] = 1
+            with self.assertRaisesRegex(ValueError, 'schema 2'):
+                verified_download_paths(report, root)
+
+    def test_malformed_symbol_entry_retains_other_planned_library_inspections(self):
+        from render import plan_inspections
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'downloads'
+            source.mkdir()
+            (source / 'a.kicad_sym').write_text('(kicad_symbol_lib (symbol))')
+            (source / 'b.kicad_sym').write_text('(kicad_symbol_lib (symbol "valid"))')
+            evidence = Evidence(root / 'renders', 1)
+            plan_inspections(evidence, source)
+            self.assertEqual([item['id'] for item in evidence.data['coverage']['inspections']],
+                             ['symbol-0.unparsed', 'symbol-1.0'])
+
+    def test_malformed_model_reference_retains_coverage_and_cannot_write_fixture(self):
+        from render import plan_inspections
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'downloads'
+            source.mkdir()
+            malformed = source / 'bad.kicad_mod'
+            malformed.write_text('(footprint "bad" (fp_rect (start 0 0) (end 1 1)) (model))')
+            evidence = Evidence(root / 'renders', 1)
+            plan_inspections(evidence, source)
+            self.assertEqual(evidence.data['coverage']['expected'], 6)
+            board = root / 'bad.kicad_pcb'
+            with self.assertRaisesRegex(ValueError, 'model reference'):
+                create_board(malformed, board)
+            self.assertFalse(board.exists())
+
+    def test_unnamed_footprint_cannot_write_fixture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, board = root / 'unnamed.kicad_mod', root / 'unnamed.kicad_pcb'
+            for name in ('', '""'):
+                source.write_text(f'(footprint {name} (fp_rect (start 0 0) (end 1 1)))')
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'footprint name'):
+                    create_board(source, board)
+                self.assertFalse(board.exists())
+
+    def test_render_preserves_preflight_original_hash_baseline(self):
+        from unittest.mock import patch
+        from render import render_assets
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'downloads'
+            source.mkdir()
+            original = source / 'part.kicad_mod'
+            original.write_text('(footprint "before")')
+            evidence = Evidence(root / 'renders', 1)
+            before = hashes(source)
+            evidence.data['inputHashes'] = before
+            original.write_text('(footprint "changed")')
+            with patch('render.calibrate') as calibration, self.assertRaisesRegex(ValueError, 'changed before rendering'):
+                render_assets(evidence, 'fake-cli', source, root / 'inspection')
+            calibration.assert_not_called()
+            self.assertEqual(evidence.data['inputHashes'], before)
+            self.assertFalse((root / 'inspection/assets').exists())
+
+    def test_nonfinite_timeouts_are_rejected_before_creating_evidence(self):
+        from unittest.mock import patch
+        from render import main
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'renders'
+            for timeout in ('nan', 'inf', '-inf'):
+                with self.subTest(timeout=timeout), patch('sys.argv', [
+                        'render.py', '--preflight', '--output', str(output), '--timeout=' + timeout]), \
+                        patch('sys.stderr'), self.assertRaises(SystemExit) as result:
+                    main()
+                self.assertEqual(result.exception.code, 2)
+                self.assertFalse(output.exists())
+
     def test_circle_bounds_include_full_radius(self):
         result = bounds(parse_sexpr('(footprint "circle" (fp_circle (center 0 0) (end 10 0)))'), margin=False)
         self.assertLessEqual(result[0], -10)
@@ -32,6 +133,92 @@ class FixtureTests(unittest.TestCase):
         self.assertAlmostEqual(result[2], 10)
         self.assertAlmostEqual(result[1], -8)
         self.assertAlmostEqual(result[3], 8)
+
+    def test_legacy_arc_normalization_preserves_both_directions_and_major_sweeps(self):
+        import math
+        for degrees in (90, -90, 270, -270):
+            with self.subTest(degrees=degrees):
+                source = f'(module "arc" (fp_arc (start 10 20) (end 12 20) (angle {degrees}) (layer F.SilkS) (width 0.12)))'
+                normalized, changes = normalize_legacy_arcs(source)
+                arc = children(parse_sexpr(normalized), 'fp_arc')[0]
+                self.assertEqual(children(arc, 'angle'), [])
+                self.assertEqual(children(arc, 'layer'), [['layer', 'F.SilkS']])
+                self.assertEqual(children(arc, 'width'), [['width', '0.12']])
+                for field, fraction in (('start', 0), ('mid', .5), ('end', 1)):
+                    angle = math.radians(degrees)*fraction
+                    expected = (10+2*math.cos(angle), 20+2*math.sin(angle))
+                    actual = tuple(map(float, children(arc, field)[0][1:]))
+                    for result, target in zip(actual, expected):
+                        self.assertAlmostEqual(result, target, places=9)
+                for original_bound, fixture_bound in zip(bounds(parse_sexpr(source), margin=False),
+                                                          bounds(parse_sexpr(normalized), margin=False)):
+                    self.assertAlmostEqual(original_bound, fixture_bound, places=8)
+                self.assertEqual(changes[0]['kind'], 'legacy-arc-syntax')
+                self.assertFalse(changes[0]['geometryRepaired'])
+
+    def test_legacy_and_modern_full_circle_arcs_have_the_same_bounds(self):
+        for degrees in (360, -360):
+            source = f'(module "full" (fp_arc (start 20 30) (end 30 30) (angle {degrees}) (layer F.SilkS) (width 0.1)))'
+            normalized, changes = normalize_legacy_arcs(source)
+            self.assertEqual(len(children(parse_sexpr(normalized), 'fp_arc')), 1)
+            self.assertEqual(bounds(parse_sexpr(source), margin=False), [10, 20, 30, 40])
+            self.assertEqual(bounds(parse_sexpr(normalized), margin=False), [10, 20, 30, 40])
+            self.assertEqual(len(changes), 1)
+
+    def test_zero_radius_arcs_remain_visible_in_fixture_metadata_and_are_not_repaired(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'point.kicad_mod'
+            original = '(module "point" (fp_arc (start 2.95 3.92) (end 2.95 3.92) (angle -359) (layer F.SilkS) (width 0.25)))'
+            source.write_text(original)
+            record = create_board(source, root / 'fixture.kicad_pcb')
+            self.assertEqual(source.read_text(), original)
+            self.assertFalse(record['footprintEmbeddedVerbatim'])
+            self.assertTrue(record['fixtureNormalizations'][0]['zeroRadius'])
+            self.assertEqual(record['geometryObservations'], [
+                {'kind': 'zero-radius-arc', 'point': [2.95, 3.92], 'geometryRepaired': False}])
+            footprint = children(parse_sexpr((root / 'fixture.kicad_pcb').read_text()), 'module')[0]
+            arc = children(footprint, 'fp_arc')[0]
+            self.assertEqual(len(children(footprint, 'fp_arc')), 1)
+            self.assertEqual(bounds(footprint, margin=False), [2.95, 3.92, 2.95, 3.92])
+            self.assertEqual([children(arc, key)[0][1:] for key in ('start', 'mid', 'end')],
+                             [['2.9500000000', '3.9200000000']]*3)
+            modern = '(footprint "point" (version 20240108) (layer F.Cu) (fp_arc (start 2.95 3.92) (mid 2.95 3.92) (end 2.95 3.92) (layer F.SilkS) (width 0.25)))'
+            source.write_text(modern)
+            modern_record = create_board(source, root / 'modern.kicad_pcb')
+            self.assertTrue(modern_record['footprintEmbeddedVerbatim'])
+            self.assertEqual(modern_record['fixtureNormalizations'], [])
+            self.assertEqual(modern_record['geometryObservations'], record['geometryObservations'])
+
+    def test_normalization_does_not_repair_legacy_arcs_in_invalid_modern_sources(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, board = root / 'bad.kicad_mod', root / 'fixture.kicad_pcb'
+            original = '(footprint "bad" (version 20240108) (fp_arc (start 0 0) (end 1 0) (angle 90)))'
+            source.write_text(original)
+            with self.assertRaisesRegex(ValueError, 'conflicts with modern'):
+                create_board(source, board)
+            self.assertFalse(board.exists())
+            self.assertEqual(source.read_text(), original)
+
+    def test_arc_normalization_changes_only_legacy_arc_geometry_tokens(self):
+        model = '(model "../models/(fp_arc literal).wrl" (offset (xyz 1.2 -3.4 5.6)) (scale (xyz 2 3 4)) (rotate (xyz 10 20 30)))'
+        modern = '(fp_arc (start 1 0) (mid 0 1) (end -1 0) (stroke (width 0.2) (type solid)) (layer "F.Fab"))'
+        source = f'(module "mixed" (fp_text user "(fp_arc is just text)" (at 0 0) (layer F.Fab)) {modern} (fp_arc (start 0 0) (end 1 0) (angle -90) (layer F.SilkS) (width 0.1)) {model})'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            footprint, board = root / 'mixed.kicad_mod', root / 'fixture.kicad_pcb'
+            footprint.write_text(source)
+            record = create_board(footprint, board)
+            output = board.read_text()
+            self.assertIn(model, output)
+            self.assertIn(modern, output)
+            self.assertIn('(fp_text user "(fp_arc is just text)"', output)
+            self.assertEqual(footprint.read_text(), source)
+            self.assertEqual(len(record['fixtureNormalizations']), 1)
+            self.assertEqual(record['models'][0]['transforms'], children(parse_sexpr(source), 'model')[0][2:])
+        self.assertEqual(normalize_legacy_arcs(f'(footprint "modern" {modern} {model})'),
+                         (f'(footprint "modern" {modern} {model})', []))
 
     def test_rotated_pad_extents_are_translated(self):
         result = bounds(parse_sexpr('(footprint "pad" (pad "1" smd rect (at 10 20 90) (size 8 2) (layers "F.Cu")))'), margin=False)
@@ -182,6 +369,8 @@ class FixtureTests(unittest.TestCase):
     def test_python_evidence_redaction_is_structural(self):
         import json
         original = {'url': 'https://example.test/?token=covered-secret&PHPSESSID=covered-session',
+                    'malformedUrl': 'https://[broken?token=covered-malformed',
+                    'email': 'covered-user@example.test',
                     'message': 'Cookie: PHPSESSID=covered-cookie', 'nested': [None, 3, {'password': 'covered-pass', 'mpn': 'ABC/TR'}]}
         before = json.dumps(original)
         self.assertNotIn('covered-', json.dumps(redact(original)))

@@ -66,6 +66,12 @@ npm run validate
 
 `npm run validate` runs linting, the Vitest regression suite, a moderate-severity dependency audit, and whitespace checks. CI uses `npm ci` and the same validation script on the supported Node lines.
 
+For QA harness changes, follow [tests/headless-qa/README.md](tests/headless-qa/README.md)
+to install its pinned Python image and lint requirements, then run `npm run qa:lint`
+and `npm run qa:smoke` alongside normal validation. The `Offline QA harness` CI job
+runs those checks on Node 24 and Python 3.10. Browser/KiCad integration checks remain
+local opt-in runs with isolated evidence directories.
+
 The Vitest suite includes a history-wide security hygiene check. It is meant for full validation, CI, security cleanup, and before sharing pushed history; it does not need to be run manually for every intermediate local commit while iterating.
 
 Use `README.md` for the operator-facing overview. Use `systemDesign.md` for the implemented design and `docs/architecture-notes.md` for short implementation notes.

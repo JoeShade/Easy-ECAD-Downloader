@@ -1,6 +1,6 @@
 /*
  * Verify the installed extension APIs by opening an actual headless popup on
- * a blank tab. This is environment evidence, never live product validation.
+ * a blank tab. This establishes the local environment; run.js owns product QA.
  */
 import path from "node:path";
 import { atomicJson, createRun, options, redact } from "./common.js";

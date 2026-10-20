@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 export { accountDownloads } from "./download_accounting.js";
 
 export const repoRoot = path.resolve(import.meta.dirname, "../..");
@@ -14,7 +15,10 @@ export const now = () => new Date().toISOString();
 
 const secretKey = /(?:authorization|password|passwd|user[_-]?name|credential|cookie|phpsessid|sess(?:ion)?[_-]?(?:id|key|secret)$|^session$|^sid$|(?:^|[_-])auth(?:$|[_-])|token|api[_-]?key|signature)/i;
 const sessionSecrets = new Set();
+const pendingWrites = new Map();
 
+// Register entered values and their URL/JSON encodings for one credential scope.
+// The returned cleanup releases the values after final evidence has been saved.
 export function protectSecrets(values) {
   const secrets = new Set(values.filter(Boolean).flatMap(value => [value, encodeURIComponent(value),
     JSON.stringify(value).slice(1, -1)]));
@@ -23,6 +27,7 @@ export function protectSecrets(values) {
 }
 
 function maskSessionSecrets(text) {
+  // Replace longer forms first so a shorter value inside an encoding stays protected.
   const secrets = [...sessionSecrets].flatMap(values => [...values]).sort((a, b) => b.length - a.length);
   for (const secret of secrets) text = text.replaceAll(secret, "[redacted]");
   return text;
@@ -32,6 +37,9 @@ export function containsProtectedSecret(text) {
   return [...sessionSecrets].some(values => [...values].some(value => text.includes(value)));
 }
 
+// Copy structured evidence while removing secrets and embedded image payloads.
+// Track the current recursion path so shared objects retain each occurrence;
+// true cycles receive a printable marker that JSON serialization can preserve.
 export function redact(value, seen = new WeakSet()) {
   if (typeof value === "string") {
     return maskSessionSecrets(value.replace(/\bdata:[^,\r\n]*,[^\r\n]+/gi, "[image/blob omitted]")
@@ -85,18 +93,37 @@ export function options(extra = {}) {
   return values;
 }
 
+// Snapshot each call immediately, then publish saves to one target in call order.
+// Unique sibling files keep staging private to a write; rename publishes complete
+// JSON, and cleanup removes staging files after successful or failed publication.
 export async function atomicJson(filename, value) {
-  const temporary = `${filename}.${process.pid}.tmp`;
-  await fs.writeFile(temporary, `${JSON.stringify(redact(value), null, 2)}\n`);
-  await fs.rename(temporary, filename);
+  const target = path.resolve(filename);
+  const snapshot = `${JSON.stringify(redact(value), null, 2)}\n`;
+  const previous = pendingWrites.get(target) || Promise.resolve();
+  const write = previous.catch(() => {}).then(async () => {
+    const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      await fs.writeFile(temporary, snapshot, { flag: "wx" });
+      await fs.rename(temporary, target);
+    } finally { await fs.rm(temporary, { force: true }); }
+  });
+  pendingWrites.set(target, write);
+  try { await write; }
+  finally { if (pendingWrites.get(target) === write) pendingWrites.delete(target); }
 }
 
+// Reserve a new evidence tree and save stage transitions before and after work.
+// Repository-local output must be ignored by Git to keep generated evidence local.
 export async function createRun(out, id, kind = "live") {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(id)) throw new Error("Invalid run ID");
   const root = path.resolve(out);
   const relative = path.relative(repoRoot, root);
-  if (!relative || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
-    const ignored = await command("git", ["check-ignore", "--quiet", `${relative.replaceAll(path.sep, "/")}/`]);
+  const outside = relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+  if (!outside) {
+    // A descendant filename tests directory patterns even before root exists.
+    // Git for Windows can treat a trailing slash as an empty ignore pattern.
+    const probe = path.join(relative, ".qa-output-probe").replaceAll(path.sep, "/");
+    const ignored = await command("git", ["check-ignore", "--quiet", "--", probe]);
     if (ignored.code !== 0) throw new Error("Output inside repository must be gitignored; use .qa-output");
   }
   const dir = path.join(root, id);
@@ -135,6 +162,8 @@ export function issue(message, category = "harness", outcome = "BLOCKED") {
   return Object.assign(new Error(message), { category, outcome });
 }
 
+// Give the whole polling loop one deadline, including a read that stays pending.
+// Each failed observation yields briefly before the next read uses the same budget.
 export async function poll(read, accept, timeout, interval = 200) {
   const deadline = Date.now() + timeout;
   let last;
@@ -151,6 +180,8 @@ export async function poll(read, accept, timeout, interval = 200) {
   throw Object.assign(issue(`Timed out after ${timeout}ms`), { last });
 }
 
+// Split the total observation budget across bounded attempts and retain the first
+// reported failure in each attempt, including an eventual successful recovery.
 export async function retryObservation(read, timeout, retries) {
   const attempts = [];
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -170,6 +201,8 @@ export async function retryObservation(read, timeout, retries) {
   }
 }
 
+// Invoke a tool with literal arguments, capture bounded output tails and record
+// timeout status alongside its exit code for the caller's stage classification.
 export async function command(executable, args, { timeout = 180000, cwd = repoRoot, log = async () => {} } = {}) {
   const startedAt = now();
   const output = await new Promise(resolve => {

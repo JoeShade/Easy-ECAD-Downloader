@@ -1,11 +1,14 @@
 /*
  * Visible terminal input and memory-only SamacSys provisioning for QA runs.
- * No credentials are accepted through arguments, environment, or files.
+ * Initial credential entry uses an interactive terminal; later runs reuse the
+ * checkout-scoped Windows cache through credential_cache.js.
  */
 import { clearLine, cursorTo, emitKeypressEvents } from "node:readline";
 import { protectSecrets, redact } from "./common.js";
 import { windowsCredentialCache } from "./credential_cache.js";
 
+// Raw terminal mode delivers editing/cancellation keys to this visible prompt.
+// Restore the original input mode and flow when the field finishes or fails.
 export function readTerminalLine(label, { input = process.stdin, output = process.stdout } = {}) {
   if (!input.isTTY || !output.isTTY || typeof input.setRawMode !== "function") {
     throw new Error("SamacSys login requires an interactive terminal; redirected input is not accepted");
@@ -54,6 +57,9 @@ export function readTerminalLine(label, { input = process.stdin, output = proces
   });
 }
 
+// Load or prompt for credentials, protect their diagnostic echoes, and expose
+// them only for the awaited action. Sanitize errors before releasing protection;
+// finally clear the per-run object while the reusable cache retains its copy.
 export async function withSamacsysCredentials(enabled, action, io, cache = windowsCredentialCache()) {
   if (!enabled) return action(null);
   if (["DEBUG", "NODE_DEBUG", "NODE_DEBUG_NATIVE"].some(key => process.env[key])) {
@@ -88,6 +94,8 @@ export async function withSamacsysCredentials(enabled, action, io, cache = windo
   }
 }
 
+// Use the production settings keys in trusted extension session storage. Remove
+// persistent copies, force session-only mode and verify the resulting placement.
 export async function provisionSamacsysCredentials(worker, credentials) {
   if (!credentials) return { mode: "unauthenticated", configured: false };
   return worker.evaluate(async ({ username, password }) => {

@@ -1,22 +1,31 @@
 /*
  * Capture Runtime/Log events before extension installation and page navigation.
- * Records stream to disk with bounded volume; generic failures keep unknown
- * cause rather than being attributed to a provider by message keywords.
+ * Records stream to disk with bounded volume; explicit access evidence
+ * establishes blockers and generic failures retain an unknown cause.
  */
 import path from "node:path";
 import { atomicJson, now, redact } from "./common.js";
 
+// Distinguish known execution prerequisites from explicit access restrictions;
+// generic runtime errors retain an unknown cause for later investigation.
 export function classifyFailure(message, { category, httpStatus } = {}) {
   const text = String(message || "");
   if (["harness", "environment", "fixture"].includes(category)) {
     return { outcome: "BLOCKED", category, cause: category };
   }
   const restriction = [401, 403, 429].includes(httpStatus) ||
-    /access denied|unauthorized|forbidden|(?:authentication|sign.?in|log.?in) (?:is )?required|requires? (?:authentication|sign.?in)|captcha|verify you are human|rate limit|HTTP(?: status| error)?\s*(?:401|403|429)\b/i.test(text);
-  return restriction ? { outcome: "BLOCKED", category: "external-access", cause: "explicit access restriction" } :
-    { outcome: "FAIL", category: category || "runtime-observation", cause: "unknown" };
+    /access denied|unauthorized|forbidden|(?:authentication|sign.?in|log.?in) (?:is )?required|requires? (?:authentication|sign.?in)|captcha|verify you are human|rate limit|HTTP(?: status| error)?\s*(?:401|403|429)\b/i.test(text) ||
+    /requires? (?:you to be )?signed in\b/i.test(text) ||
+    /SamacSys (?:entry|preview(?: page)?|ZIP) request failed:\s*(?:401|403|429)\b/i.test(text);
+  if (restriction) return { outcome: "BLOCKED", category: "external-access", cause: "explicit access restriction" };
+  // Product navigation precedes extension detection, previews and exports. A
+  // transport failure blocks those checks and retains an unknown cause.
+  const navigationTransport = category === "browser-observation" && /\bnet::ERR_[A-Z0-9_]+\b/.test(text);
+  return { outcome: navigationTransport ? "BLOCKED" : "FAIL", category: category || "runtime-observation", cause: "unknown" };
 }
 
+// Normalize CDP's three diagnostic shapes into bounded, redacted records while
+// preserving source locations and the distinction between warnings and errors.
 export function diagnosticRecord(source, method, event) {
   const timestamp = now();
   let message, severity = "error", details;
@@ -41,9 +50,11 @@ export function diagnosticRecord(source, method, event) {
     finding: severity === "warning" ? { outcome: "REVIEW", category: "runtime-observation", cause: "unknown" } : classifyFailure(message) });
 }
 
+// Serialize writes so each atomic replacement contains all accepted records.
+// Retain the first write failure for flush while later observations keep saving.
 export function diagnosticCollector(run, limit = 200) {
   const records = [];
-  let dropped = 0, pending = Promise.resolve();
+  let dropped = 0, pending = Promise.resolve(), persistenceError = null;
   const record = value => {
     if (!value) return;
     if (records.length >= limit) { dropped++; return; }
@@ -51,11 +62,12 @@ export function diagnosticCollector(run, limit = 200) {
     pending = pending.then(async () => {
       await run.log("runtime-diagnostic", value);
       await atomicJson(path.join(run.dir, "browser/diagnostics.json"), { records, dropped, limit });
-    });
+    }).catch(error => { persistenceError ||= error; });
   };
   return { records, record, async flush() {
     await pending;
     await atomicJson(path.join(run.dir, "browser/diagnostics.json"), { records, dropped, limit });
+    if (persistenceError) throw persistenceError;
   }, summary() { return { evidence: "browser/diagnostics.json", count: records.length, dropped, limit,
     errors: records.filter(record => record.severity === "error").length,
     warnings: records.filter(record => record.severity === "warning").length,
@@ -63,11 +75,20 @@ export function diagnosticCollector(run, limit = 200) {
     contexts: [...new Set(records.map(record => record.source.role || record.source.type))] }; } };
 }
 
+// Pause new targets until their listeners are ready. Existing-target attachment
+// shares the target-ID registry so buffered startup events are observed once.
 export async function attachDiagnostics(browser, run) {
   const collector = diagnosticCollector(run), sessions = [], tasks = new Set();
-  const targets = new Map();
+  const targets = new Map(), observedTargets = new Set();
+  let attachmentError = null;
   const root = await browser.target().createCDPSession();
   const listen = async (session, info) => {
+    if (observedTargets.has(info.targetId)) {
+      await session.send("Runtime.runIfWaitingForDebugger").catch(() => {});
+      await session.detach().catch(() => {});
+      return;
+    }
+    observedTargets.add(info.targetId);
     targets.set(info.targetId, info);
     const handlers = [];
     const source = () => {
@@ -83,7 +104,7 @@ export async function attachDiagnostics(browser, run) {
     sessions.push({ session, handlers });
     try {
       await session.send("Runtime.enable");
-      await session.send("Log.enable").catch(() => {}); // Not all worker targets expose Log.
+      await session.send("Log.enable").catch(() => {}); // Enable Log on targets that expose the domain.
     } catch (error) {
       await run.log("diagnostic-attachment-limitation", { source: source(), message: error.message });
     } finally { await session.send("Runtime.runIfWaitingForDebugger").catch(() => {}); }
@@ -91,7 +112,8 @@ export async function attachDiagnostics(browser, run) {
   const attached = event => {
     const session = root.connection()?.session(event.sessionId);
     if (!session) return;
-    const task = listen(session, event.targetInfo).finally(() => tasks.delete(task));
+    const task = listen(session, event.targetInfo).catch(error => { attachmentError ||= error; })
+      .finally(() => tasks.delete(task));
     tasks.add(task);
   };
   root.on("Target.attachedToTarget", attached);
@@ -103,7 +125,9 @@ export async function attachDiagnostics(browser, run) {
   // Explicitly attach existing targets; new targets are observed before resuming.
   for (const target of browser.targets().filter(target => ["page", "service_worker", "other"].includes(target.type()))) {
     const session = await target.createCDPSession();
-    await listen(session, { type: target.type(), url: target.url() });
+    // A session-scoped query supplies the stable ID used by later URL changes.
+    const { targetInfo } = await session.send("Target.getTargetInfo");
+    await listen(session, targetInfo);
   }
   return { ...collector, async close() {
     root.off("Target.attachedToTarget", attached);
@@ -117,6 +141,7 @@ export async function attachDiagnostics(browser, run) {
     }
     await root.detach().catch(() => {});
     await collector.flush();
+    if (attachmentError) throw attachmentError;
   } };
 }
 

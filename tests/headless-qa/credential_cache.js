@@ -1,12 +1,15 @@
 /*
  * Share SamacSys credentials across QA processes using encrypted volatile
- * Windows registry keys. Private pipes carry values; no secret files or argv.
+ * Windows registry keys. Private pipes carry values, and the PowerShell helper
+ * owns encryption, volatile-key creation and serialized registry access.
  */
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { repoRoot } from "./common.js";
 
+// Spawn the system PowerShell helper with public action/scope arguments. Bound
+// its runtime and response size; private response text stays inside this call.
 function invokeCache(action, scope, credentials) {
   if (process.platform !== "win32") throw new Error("Reusable SamacSys credentials require Windows");
   if (!process.env.SystemRoot) throw new Error("Windows SystemRoot is unavailable");
@@ -22,7 +25,7 @@ function invokeCache(action, scope, credentials) {
       if (output.length + data.length > 65536) { failed = true; child.kill(); }
       else output += data;
     });
-    // Never forward helper output to logs: read responses contain private values.
+    // Read responses contain private values; only parsed results reach the caller.
     child.stderr.resume();
     child.stdin.on("error", () => { failed = true; });
     child.on("error", () => { failed = true; });
@@ -37,6 +40,8 @@ function invokeCache(action, scope, credentials) {
   });
 }
 
+// Derive one stable checkout identity on Windows' case-insensitive filesystem;
+// tests can supply a separate validated hash to isolate their registry records.
 export function windowsCredentialCache(scope = createHash("sha256").update(repoRoot.toLowerCase()).digest("hex")) {
   if (!/^[a-f0-9]{64}$/.test(scope)) throw new Error("Invalid Windows credential cache scope");
   return {

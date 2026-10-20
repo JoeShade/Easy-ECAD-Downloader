@@ -1,4 +1,7 @@
-"""CLI discovery, isolated KiCad settings, subprocess evidence and image checks."""
+"""Persist renderer evidence and validate CLI, image and browser-download inputs.
+
+KiCad subprocesses receive isolated settings; render.py owns inspection planning.
+"""
 import hashlib
 import json
 import os
@@ -16,6 +19,7 @@ def now():
 
 
 def redact(value):
+    """Copy evidence recursively and remove secret fields and diagnostic identifiers."""
     secret = re.compile(r'authorization|password|user[_-]?name|credential|cookie|phpsessid|sess(?:ion)?[_-]?(?:id|key|secret)|token|api[_-]?key|signature', re.I)
     if isinstance(value, dict):
         return {key: "[redacted]" if secret.search(key) else redact(item) for key, item in value.items()}
@@ -24,17 +28,24 @@ def redact(value):
     if not isinstance(value, str):
         return value
     def url(match):
-        parts = urlsplit(match.group())
-        query = [(key, "[redacted]" if secret.search(key) or key.lower() in ("key", "auth", "code") else item)
-                 for key, item in parse_qsl(parts.query, keep_blank_values=True)]
-        return urlunsplit((parts.scheme, parts.netloc.split("@")[-1], parts.path, urlencode(query), parts.fragment))
+        try:
+            parts = urlsplit(match.group())
+            query = [(key, "[redacted]" if secret.search(key) or key.lower() in ("key", "auth", "code") else item)
+                     for key, item in parse_qsl(parts.query, keep_blank_values=True)]
+            return urlunsplit((parts.scheme, parts.netloc.split("@")[-1], parts.path, urlencode(query), parts.fragment))
+        except ValueError:
+            # Native diagnostics may contain incomplete URLs. Omitting that token
+            # preserves evidence persistence and keeps any embedded secret private.
+            return "[invalid URL omitted]"
     value = re.sub(r'https?://[^\s"\'<>\\]+', url, value)
     value = re.sub(r'\b(?:Basic|Bearer)\s+[A-Za-z0-9+/=._-]+', '[authorization omitted]', value, flags=re.I)
     value = re.sub(r'\b(?:set-cookie|cookie)["\']?\s*:\s*[^\r\n]+', '[cookie omitted]', value, flags=re.I)
+    value = re.sub(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}', '[email omitted]', value)
     return re.sub(r'\b(?:data|blob):[^\s"\'<>]+', '[image/blob omitted]', value, flags=re.I)
 
 
 def atomic_json(filename, value):
+    """Replace complete redacted JSON atomically so readers see a complete report."""
     filename = Path(filename)
     temporary = filename.with_suffix(filename.suffix + ".tmp")
     temporary.write_text(json.dumps(redact(value), indent=2) + "\n", encoding="utf-8")
@@ -42,6 +53,7 @@ def atomic_json(filename, value):
 
 
 def discover_cli(explicit=None):
+    """Honor an explicit executable, then discover an installed KiCad candidate."""
     if explicit:
         if not Path(explicit).is_file():
             raise FileNotFoundError(f"Explicit KiCad executable does not exist: {explicit}")
@@ -52,6 +64,50 @@ def discover_cli(explicit=None):
         if candidate and Path(candidate).is_file():
             return str(Path(candidate).resolve())
     raise FileNotFoundError("KiCad 10 CLI not found; supply --kicad-cli or KICAD_CLI")
+
+
+def verified_download_paths(report, source):
+    """Authorize schema-2 browser assets only while their delivered bytes still match.
+
+Standalone rendering owns its supplied-directory provenance. Browser rendering
+also requires the recorded completion flag, size and digest for each eligible file.
+"""
+    if not isinstance(report, dict) or report.get("schemaVersion") != 2:
+        raise ValueError("Download inventory must use schema 2")
+    try:
+        assets = report["stages"]["downloads"]["assets"]
+    except (KeyError, TypeError):
+        raise ValueError("Download inventory lacks final assets") from None
+    if not isinstance(assets, list):
+        raise ValueError("Download inventory final assets must be a list")
+    source = Path(source).resolve()
+    verified, targets = set(), set()
+    for asset in assets:
+        if not isinstance(asset, dict) or not isinstance(asset.get("verified"), bool):
+            raise ValueError("Download inventory verified flags must be booleans")
+        if not asset["verified"]:
+            continue
+        relative, digest, size = asset.get("relativePath"), asset.get("sha256"), asset.get("size")
+        if (not isinstance(relative, str) or not relative or "\\" in relative or
+                any(ord(char) < 32 or ord(char) == 127 for char in relative) or
+                re.match(r"^[A-Za-z]:", relative) or
+                any(part in ("", ".", "..") for part in relative.split("/"))):
+            raise ValueError("Download inventory contains an unsafe relative path")
+        target = source / relative
+        resolved = target.resolve()
+        # Resolve every path before reading bytes, so a substituted link also has
+        # to remain inside the original acquisition tree.
+        if source not in resolved.parents or resolved in targets:
+            raise ValueError("Download inventory path escapes its input or repeats an asset")
+        if (not isinstance(size, int) or isinstance(size, bool) or size <= 0 or
+                not isinstance(digest, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", digest)):
+            raise ValueError("Download inventory lacks a valid size or SHA-256")
+        data = target.read_bytes()
+        if len(data) != size or hashlib.sha256(data).hexdigest() != digest.lower():
+            raise ValueError(f"Verified download size or SHA-256 changed: {relative}")
+        verified.add(relative)
+        targets.add(resolved)
+    return verified
 
 
 class Evidence:
@@ -72,6 +128,7 @@ class Evidence:
         self.save()
 
     def command(self, args, cwd=None):
+        """Capture one bounded subprocess and persist its classified failure evidence."""
         record = {"args": list(map(str, args)), "cwd": str(cwd or self.output), "startedAt": now()}
         try:
             response = subprocess.run(record["args"], cwd=cwd or self.output, env=self.env,
@@ -93,6 +150,7 @@ class Evidence:
         return record
 
     def preflight(self, explicit):
+        """Verify installed versions and required CLI flags before asset inspection."""
         import PIL
         self.data["python"] = __import__("sys").version
         self.data["pillow"] = PIL.__version__
@@ -103,7 +161,7 @@ class Evidence:
         self.data["kicad"] = {"executable": cli, "version": version["stdout"].strip()}
         required = {"sym": (["sym", "export", "svg"], ["--output", "--symbol"]),
                     "fp": (["fp", "export", "svg"], ["--output", "--layers", "--footprint", "--sketch-pads-on-fab-layers"]),
-                    "pcb": (["pcb", "render"], ["--output", "--width", "--height", "--side", "--rotate"])}
+                    "pcb": (["pcb", "render"], ["--output", "--width", "--height", "--side", "--rotate", "--background", "--zoom"])}
         for key, (args, flags) in required.items():
             help_result = self.command([cli, *args, "--help"])
             if help_result.get("exitCode") != 0 or any(flag not in help_result.get("stdout", "") for flag in flags):
@@ -112,6 +170,7 @@ class Evidence:
         return cli
 
     def image(self, filename):
+        """Record decoding separately from the visual review required for CAD content."""
         from PIL import Image, ImageStat
         filename = Path(filename)
         try:
