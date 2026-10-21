@@ -1,11 +1,12 @@
 /*
- * Issue #14 regressions exercise the production GET_PART_CONTEXT listener.
- * The JLCPCB fixture is captured markup; all generated LCSC/edge cases are
- * synthetic, using report-derived identifiers rather than live-page evidence.
+ * Issues #14 and #18 exercise the production GET_PART_CONTEXT listener with
+ * captured JLCPCB/LCSC markup. Generated identifier variants and edge cases
+ * are synthetic; those substitutions do not represent separate live captures.
  */
 import { describe, expect, it } from "vitest";
 import { loadContentScript } from "./helpers/content_script_harness.js";
 import { readRepoFile } from "./helpers/test_harness.js";
+import lcscProducts from "./fixtures/issue_18.json";
 
 const LCSC_URL = "https://www.lcsc.com/product-detail/C132649.html?s_z=n_q_RC1206FR-0710KL";
 const MPN_VALUES = ["0451001.MRL", "0402CG2R7B500NT", "35ZLH100MEFC6.3X11",
@@ -21,6 +22,75 @@ function productFields(mpn = "RC1206FR-0710KL", label = "MPN") {
   return `<dl><dt>Manufacturer</dt><dd>YAGEO</dd><dt>${label}</dt><dd>${mpn}</dd>
     <dt>LCSC Part #</dt><dd>C132649</dd></dl>`;
 }
+
+describe("LCSC current product summary (issue #18)", () => {
+  const capturedSummary = () => readRepoFile("tests/fixtures/issue_18_lcsc.html");
+
+  it("reads the captured plain-table summary through GET_PART_CONTEXT", () => {
+    const page = loadContentScript(capturedSummary(), { url: "https://www.lcsc.com/product-detail/C34846.html" });
+    expectContext(page, "3296W-1-103LF", "C34846");
+    page.dom.window.close();
+  });
+
+  // These substitutions cover every reported identifier using the captured
+  // layout; they are not separate live-page captures.
+  it.each(lcscProducts)("preserves $case MPN $mpn and catalogue lookup $id", product => {
+    const markup = capturedSummary().replaceAll("3296W-1-103LF", product.mpn).replaceAll("C34846", product.id);
+    const page = loadContentScript(markup, { url: product.url });
+    expectContext(page, product.mpn, product.id);
+    page.dom.window.close();
+  });
+
+  it.each(["hidden", 'aria-hidden="true"', "inert", 'style="display:none"', 'style="visibility:hidden"'])(
+    "requires a visible catalogue anchor in the same table: %s", attribute => {
+      const page = loadContentScript(`<dl><dt>LCSC Part #</dt><dd>C34846</dd></dl><table>
+        <tr><td>MPN</td><td>3296W-1-103LF</td></tr>
+        <tr ${attribute}><td>LCSC Part #</td><td>C34846</td></tr></table>`,
+      { url: "https://www.lcsc.com/product-detail/C34846.html" });
+      expectContext(page, null, "C34846");
+      page.dom.window.close();
+    });
+
+  it.each([
+    '<tr><td>Other LCSC Part #</td><td>C34846</td></tr>',
+    '<tr><td>LCSC Part #</td><td>C34846 trailing text</td></tr>',
+    '<tr><td>LCSC Part #</td><td>C34846</td><td>extra</td></tr>',
+    '<tr><td colspan="2"><table><tr><td>LCSC Part #</td><td>C34846</td></tr></table></td></tr>',
+    '<tr><td>LCSC Part #</td><td><a href="/product-detail/C999999.html">C34846</a></td></tr>'
+  ])("does not qualify a table using invalid or unrelated catalogue evidence: %s", anchor => {
+    const page = loadContentScript(`<dl><dt>LCSC Part #</dt><dd>C34846</dd></dl>
+      <table><tr><td>MPN</td><td>Other-MPN</td></tr>${anchor}</table>`,
+    { url: "https://www.lcsc.com/product-detail/C34846.html" });
+    expectContext(page, null, "C34846");
+    page.dom.window.close();
+  });
+
+  it("keeps unanchored tables and recommendation summaries out of the current product", () => {
+    const page = loadContentScript(capturedSummary(), { url: "https://www.lcsc.com/product-detail/C34846.html" });
+    page.dom.window.document.querySelector("main").insertAdjacentHTML("beforeend", `
+      <table><tr><td>MPN</td><td>Other-MPN</td></tr></table>
+      <section class="related-products"><table><tr><td>LCSC Part #</td><td>C999999</td></tr>
+        <tr><td>MPN</td><td>Related-MPN</td></tr></table></section>`);
+    expectContext(page, "3296W-1-103LF", "C34846");
+    page.dom.window.close();
+  });
+
+  it("rejects stale catalogue rows and omits conflicting MPNs", () => {
+    const page = loadContentScript(capturedSummary(), { url: "https://www.lcsc.com/product-detail/C34846.html" });
+    const table = page.dom.window.document.querySelector("tbody");
+    table.insertAdjacentHTML("beforeend", '<tr><td>MPN</td><td>Other-MPN</td></tr>');
+    expectContext(page, null, "C34846");
+    page.dom.reconfigure({ url: "https://www.lcsc.com/product-detail/C132649.html" });
+    expect(page.requestContext().provider).toBeNull();
+    page.dom.window.close();
+  });
+
+  it("does not expand plain-table detection on JLCPCB", () => {
+    const page = loadContentScript(capturedSummary(), { url: "https://jlcpcb.com/partdetail/Bourns-3296W/C34846" });
+    expectContext(page, null, "C34846");
+    page.dom.window.close();
+  });
+});
 
 describe("EasyEDA manufacturer part metadata", () => {
   it("reads the captured JLCPCB facts with wrapped pairs and empty copy icons", () => {

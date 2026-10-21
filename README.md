@@ -74,7 +74,7 @@ The content script detects supported part contexts from EasyEDA-backed JLCPCB/LC
 
 ### 2. Preview and download from the popup
 
-The popup shows manufacturer details, source-specific part metadata, symbol and footprint previews, and the available export options.
+The popup shows manufacturer details, source-specific part metadata, symbol and footprint previews, and the available export options. On LCSC, `Mfr. Part #` reads the product summary's `MPN` field, while `LCSC part` identifies the catalogue entry used for previews and downloads.
 
 <p align="center">
   <img src="docs/assets/readme/PopupPreview.png" alt="Easy ECAD Downloader popup preview" width="260">

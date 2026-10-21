@@ -151,21 +151,30 @@ function isCurrentEasyedaField(node) {
 }
 
 function findEasyedaFieldPairs() {
+  const isCurrentPair = ([label, value]) => value &&
+    !label.parentElement.closest("dd, td, th") &&
+    !value.querySelector("dt, dd, tr, script, style, template") &&
+    [label, value].every(node => isCurrentEasyedaField(node) &&
+      Array.from(node.querySelectorAll("*")).every(isCurrentEasyedaField));
   // Modern JLCPCB wraps each dt/dd pair in a div. Keep adjacent siblings
   // together; never combine the first label/value across nested groups.
   const root = document.querySelector("main") || document.body;
   const pairs = Array.from(root.querySelectorAll("dl dt"), label => [
     label, label.nextElementSibling?.matches("dd") ? label.nextElementSibling : null
-  ]);
-  for (const row of root.querySelectorAll("table.tableInfoWrap tr")) {
-    const cells = Array.from(row.children).filter(cell => cell.matches("th, td"));
-    if (cells.length === 2) pairs.push(cells);
+  ]).filter(isCurrentPair);
+  for (const table of root.querySelectorAll("table")) {
+    const rows = Array.from(table.querySelectorAll("tr"))
+      .filter(row => row.closest("table") === table)
+      .map(row => Array.from(row.children).filter(cell => cell.matches("th, td")))
+      .filter(cells => cells.length === 2 && isCurrentPair(cells));
+    // Current LCSC summaries have no semantic table class. Their own visible,
+    // complete catalogue field must qualify the table before reading its MPN.
+    const isLcscSummary = /^(www\.)?lcsc\.com$/i.test(window.location.hostname) &&
+      rows.some(([label, value]) => normalizeLabel(label.textContent || "") === "lcsc part #" &&
+        /^C\d{3,}$/i.test(normalizeDetectedValue(value.textContent) || ""));
+    if (table.matches(".tableInfoWrap") || isLcscSummary) pairs.push(...rows);
   }
-  return pairs.filter(([label, value]) => value &&
-    !label.parentElement.closest("dd, td, th") &&
-    !value.querySelector("dt, dd, tr, script, style, template") &&
-    [label, value].every(node => isCurrentEasyedaField(node) &&
-      Array.from(node.querySelectorAll("*")).every(isCurrentEasyedaField)));
+  return pairs;
 }
 
 function findEasyedaFieldValues(expectedLabels) {

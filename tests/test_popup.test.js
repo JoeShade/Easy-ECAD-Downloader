@@ -155,6 +155,27 @@ function activatePopupTab(state, tabId) {
 }
 
 describe("popup", () => {
+  it("displays the captured LCSC summary MPN and forwards its catalogue lookup (issue #18)", async () => {
+    const page = loadContentScript(readRepoFile("tests/fixtures/issue_18_lcsc.html"),
+      { url: "https://www.lcsc.com/product-detail/C34846.html" });
+    const partContext = page.requestContext();
+    const { state, hooks, dom } = await loadPopup();
+    await applyStoredSettings(state);
+    activatePopupTab(state, 7);
+    state.tabMessages[0].callback(partContext);
+    expect(hooks.elements.manufacturerPartNumberEl.textContent).toBe("3296W-1-103LF");
+    expect(hooks.elements.partNumberEl.textContent).toBe("C34846");
+    expect(state.runtimeMessages[0].message).toEqual({ type: "GET_PART_PREVIEWS", partContext });
+    expect(partContext.lookup).toEqual({ lcscId: "C34846" });
+    state.runtimeMessages[0].callback({ ok: true, previews: {}, metadata: { datasheetAvailable: false } });
+    await flushAsyncWork();
+    expect(hooks.elements.downloadButton.disabled).toBe(false);
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages[1].message).toMatchObject({ type: "EXPORT_PART", partContext });
+    page.dom.window.close();
+    dom.window.close();
+  });
+
   it.each(farnellProducts)("displays and forwards the full $brand issue #15 identity", async product => {
     const page = loadContentScript("", { url: product.url,
       headMarkup: `<meta property="og:description" content="Buy ${product.mpn} - YAGEO - Resistor.">` });
