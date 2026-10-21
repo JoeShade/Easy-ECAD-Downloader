@@ -306,7 +306,7 @@ Key implementation areas:
 
 Read [contributing.md](contributing.md) for development setup, local validation, contribution expectations, and manual extension-loading instructions. Read [AGENTS.md](AGENTS.md) for repository working rules.
 
-The optional [headless QA harness](tests/headless-qa/README.md) exercises Chrome and KiCad 10 with isolated temporary downloads, preserved evidence, and model inspection views. Run `npm run qa:smoke` for its offline regression checks and `npm run qa:lint` for Python correctness linting after installing the harness requirements.
+The optional [background QA harness](tests/headless-qa/README.md) exercises headed Chrome on a private Windows desktop and KiCad 10 with isolated temporary downloads, preserved evidence, and model inspection views. Browser windows stay off your working desktop. Before a full matrix, `npm run qa:auth -- --terminal` opens a dedicated user credential console and waits for successful entry. Run `npm run qa:smoke` for its offline regression checks and `npm run qa:lint` for Python correctness linting after installing the harness requirements.
 
 Good contributions include parser fixes for real component pages, regression tests for failed exports, output-format corrections, browser compatibility fixes, and documentation that makes the workflow clearer for KiCad users.
 

@@ -11,11 +11,12 @@ import { attachDiagnostics } from "./diagnostics.js";
 import { symbolDownloadEvidence } from "./download_accounting.js";
 import { downloadCleanupInventory } from "./download_preservation.js";
 import { provisionSamacsysCredentials } from "./credentials.js";
+import { createPrivateWindow, launchPrivateDesktopBrowser } from "./private_desktop.js";
 
 // Install into a fresh short profile, observe diagnostics before installation,
 // and provision session settings before returning a usable worker context.
-export async function launchExtension(run, timeout, credentials = null, controlledSignals = false) {
-  let profile, downloadRoot, browser, diagnostics;
+export async function launchExtension(run, timeout, credentials = null, controlledSignals = false, python = "python") {
+  let profile, downloadRoot, browser, diagnostics, desktop;
   try {
     // Chrome's extension storage can hit Windows path limits beneath nested
     // evidence folders. Keep disposable profiles independent of the run path.
@@ -30,11 +31,9 @@ export async function launchExtension(run, timeout, credentials = null, controll
     await fs.writeFile(path.join(profile, "Default/Preferences"), JSON.stringify({ download: {
       default_directory: downloadRoot, prompt_for_download: false, directory_upgrade: true
     } }));
-    browser = await puppeteer.launch({ headless: true, pipe: true, enableExtensions: true,
-      handleSIGINT: !controlledSignals, handleSIGTERM: !controlledSignals, handleSIGHUP: !controlledSignals,
-      userDataDir: profile, timeout, protocolTimeout: Math.max(timeout, 180000),
-      defaultViewport: { width: 1280, height: 900 } });
+    ({ browser, desktop } = await launchPrivateDesktopBrowser({ profile, timeout, controlledSignals, python }));
     diagnostics = await attachDiagnostics(browser, run);
+    const { page, window } = await createPrivateWindow(browser, timeout);
     if (typeof browser.installExtension !== "function") throw issue("Installed Puppeteer lacks installExtension");
     const id = await browser.installExtension(repoRoot);
     const target = await browser.waitForTarget(target => target.type() === "service_worker" &&
@@ -53,12 +52,20 @@ export async function launchExtension(run, timeout, credentials = null, controll
     const authentication = await provisionSamacsysCredentials(worker, credentials);
     // CDP 'allow' overrides chrome.downloads filenames for data URLs. Profile
     // preferences retain the extension's grouped paths and conflict semantics.
-    await run.log("browser-launched", { chrome: await browser.version(), id, api, settings,
-      headless: true, pipe: true, executable: await puppeteer.executablePath(), args: browser.process()?.spawnargs.slice(1) });
-    return { browser, worker, id, settings, profile, downloadRoot, diagnostics, authentication };
+    const browserMode = { headless: false, pipe: true, desktop: desktop.info, window };
+    await run.log("browser-launched", { chrome: await browser.version(), id, api, settings, ...browserMode,
+      executable: await puppeteer.executablePath(), args: browser.process()?.spawnargs.slice(1) });
+    return { browser, worker, id, settings, profile, downloadRoot, diagnostics, authentication, desktop, browserMode, page };
   } catch (error) {
-    if (browser) await closeBrowser({ browser, profile, downloadRoot, diagnostics }, run);
-    else {
+    browser ||= error.browser;
+    desktop ||= error.desktop;
+    if (browser) await closeBrowser({ browser, profile, downloadRoot, diagnostics, desktop }, run);
+    else if (desktop && !await desktop.verifyExit()) {
+      await run.log("browser-cleanup-retained", { profile, downloadRoot,
+        reason: "Private desktop launch failed without a confirmed process-tree exit receipt" });
+      await run.check?.("environment", "BLOCKED", "Private desktop launch cleanup could not be confirmed; temporary directories retained",
+        { category: "harness", cause: "browser cleanup" });
+    } else {
       if (profile) await removeTemporaryDirectory(profile);
       if (downloadRoot) await removeTemporaryDirectory(downloadRoot);
     }
@@ -117,11 +124,18 @@ export async function closeBrowser(context, run) {
       })]);
       closed = true;
     } catch (error) {
-      processHandle?.kill();
+      if (context.desktop) context.desktop.requestStop();
+      else processHandle?.kill();
       await run.log("browser-close-error", { message: error.message });
     } finally {
       clearTimeout(timer);
-      const stopped = processHandle ? await waitForBrowserExit(processHandle) : closed;
+      let stopped = processHandle ? await waitForBrowserExit(processHandle) : closed;
+      if (!stopped && processHandle) { processHandle.kill(); stopped = await waitForBrowserExit(processHandle); }
+      if (context.desktop) {
+        const confirmed = await context.desktop.verifyExit();
+        await run.log("browser-private-desktop-cleanup", { name: context.desktop.name, confirmed });
+        stopped &&= confirmed;
+      }
       if (stopped) {
         await removeTemporaryDirectory(context.profile)
           .catch(error => run.log("profile-cleanup-error", { message: error.message }));
@@ -150,8 +164,8 @@ export async function closeBrowser(context, run) {
   }
 }
 
-// Bring the distributor tab forward and confirm the same tab through extension
-// APIs because the action popup reads the currently active browser tab.
+// Activate only within the verified private desktop. The action popup reads
+// the active browser tab; activation never switches the user's input desktop.
 export async function activateProduct(context, page) {
   await page.bringToFront();
   const tab = await context.worker.evaluate(async url => {
@@ -169,7 +183,7 @@ export async function openPopup(context, page, timeout) {
   const tab = await activateProduct(context, page);
   // Chrome's action API owns creation of the UI target.
   try { await context.worker.evaluate(windowId => chrome.action.openPopup({ windowId }), tab.windowId); }
-  catch (error) { throw issue(`Actual headless popup activation blocked: ${redact(error.message)}`); }
+  catch (error) { throw issue(`Actual popup activation blocked: ${redact(error.message)}`); }
   const target = await context.browser.waitForTarget(target =>
     target.url() === `chrome-extension://${context.id}/src/popup.html`, { timeout })
     .catch(error => { throw issue(`Actual popup target unavailable: ${error.message}`); });

@@ -6,14 +6,26 @@ import { parseArgs } from "node:util";
 import { windowsCredentialCache } from "./credential_cache.js";
 import { withSamacsysCredentials } from "./credentials.js";
 import { redact } from "./common.js";
+import { openCredentialTerminal } from "./auth_terminal.js";
 
 async function main() {
-  const { values } = parseArgs({ options: { clear: { type: "boolean", default: false } } });
+  const { values } = parseArgs({ options: { clear: { type: "boolean", default: false },
+    terminal: { type: "boolean", default: false }, prompt: { type: "boolean", default: false } } });
+  if ([values.clear, values.terminal, values.prompt].filter(Boolean).length > 1) {
+    throw new Error("Use only one of --clear, --terminal or --prompt");
+  }
   if (values.clear) {
     await windowsCredentialCache().clear();
     console.log("SamacSys memory cache cleared. The next authenticated QA run will prompt again.");
+  } else if (values.terminal) {
+    console.log("Opening the SamacSys credential terminal. Complete entry there before starting the matrix.");
+    await openCredentialTerminal();
+    console.log("SamacSys QA credential setup completed. Matrix startup may proceed.");
   } else {
-    await withSamacsysCredentials(true, () => console.log("SamacSys QA credentials are ready for reuse."));
+    if (values.prompt) console.log("QA matrix credential setup. SamacSys username and password are visible as you type.\n" +
+      "Enter submits each field; Ctrl+C or Escape cancels. Complete setup before starting or resuming the matrix.");
+    await withSamacsysCredentials(true, () => console.log("SamacSys QA credentials are ready for reuse."),
+      undefined, windowsCredentialCache(), { prompt: values.prompt });
   }
 }
 

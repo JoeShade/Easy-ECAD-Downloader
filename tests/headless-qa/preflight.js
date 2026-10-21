@@ -1,6 +1,6 @@
 /*
- * Verify the installed extension APIs by opening an actual headless popup on
- * a blank tab. This establishes the local environment; run.js owns product QA.
+ * Verify the installed extension APIs through a real headed popup on a private
+ * Windows desktop. This establishes the environment; run.js owns product QA.
  */
 import path from "node:path";
 import { atomicJson, createRun, options, redact } from "./common.js";
@@ -10,23 +10,31 @@ import { finish, metadata, pythonPreflight } from "./run.js";
 const opts = options();
 const run = await createRun(opts.out, opts.id, "preflight");
 const meta = await metadata(run);
-let context;
+let context, interrupted = false;
+const interrupt = () => { interrupted = true; context?.desktop?.requestStop(); };
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, interrupt);
 try {
   await run.stage("environment", async () => {
     await pythonPreflight(run, opts, meta);
-    context = await launchExtension(run, opts.timeout);
-    const page = await context.browser.newPage();
+    if (interrupted) throw new Error("Preflight interrupted by terminal");
+    context = await launchExtension(run, opts.timeout, null, true, opts.python);
+    if (interrupted) throw new Error("Preflight interrupted by terminal");
+    const page = context.page;
     const popup = await openPopup(context, page, opts.timeout);
     await popup.screenshot({ path: path.join(run.dir, "browser/popup.png"), fullPage: true });
-    Object.assign(meta, { chrome: await context.browser.version(), extensionId: context.id, effectiveSettings: context.settings });
+    Object.assign(meta, { chrome: await context.browser.version(), extensionId: context.id,
+      effectiveSettings: context.settings, browserMode: context.browserMode });
     await atomicJson(path.join(run.dir, "metadata.json"), meta);
-    await run.check("environment", "PASS", "Actual extension action popup is available headlessly", { dom: await popupState(popup) });
+    await run.check("environment", "PASS", "Actual extension action popup is available on a private Windows desktop", { dom: await popupState(popup) });
   });
   run.result.execution = "COMPLETED";
 } catch (error) {
   run.result.execution = "FAILED";
   await run.log("preflight-error", { message: redact(error.message) });
-} finally { await closeBrowser(context, run); }
+} finally {
+  try { await closeBrowser(context, run); }
+  finally { for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.off(signal, interrupt); }
+}
 await finish(run);
 
 /*

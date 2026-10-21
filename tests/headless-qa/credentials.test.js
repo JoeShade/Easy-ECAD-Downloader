@@ -41,8 +41,8 @@ function memoryCache(initial = null) {
 }
 
 // Resume after each awaited field so synthetic keypresses reach its new listener.
-async function login(io, action, cache = memoryCache()) {
-  const pending = withSamacsysCredentials(true, action, io, cache);
+async function login(io, action, cache = memoryCache(), options = {}) {
+  const pending = withSamacsysCredentials(true, action, io, cache, options);
   await Promise.resolve();
   enter(io, "qa-user");
   await Promise.resolve();
@@ -175,6 +175,24 @@ describe("terminal SamacSys session", () => {
     await login(next, () => {}, cache);
     expect(next.text()).toContain("SamacSys password: ");
     expect(await cache.read()).toEqual({ username: "qa-user", password: 'qa-Pass/"123' });
+  });
+
+  it("prompts for the new campaign without reading or clearing the old cache", async () => {
+    const cache = memoryCache({ username: "old-placeholder", password: "old-password" });
+    const read = vi.spyOn(cache, "read"), clear = vi.spyOn(cache, "clear");
+    const cancelled = terminal(), action = vi.fn();
+    const pending = withSamacsysCredentials(true, action, cancelled, cache, { prompt: true });
+    cancelled.input.emit("keypress", "\x03", { name: "c", ctrl: true });
+    await expect(pending).rejects.toThrow("cancelled");
+    expect(read).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+    expect(await cache.read()).toEqual({ username: "old-placeholder", password: "old-password" });
+    const next = terminal();
+    await login(next, action, cache, { prompt: true });
+    expect(next.text()).toContain("SamacSys username: qa-user");
+    expect(await cache.read()).toEqual({ username: "qa-user", password: 'qa-Pass/"123' });
+    expect(action).toHaveBeenCalledOnce();
   });
 
   it("redacts entered values, encoded values and runtime echoes before persistence and disposes references", async () => {

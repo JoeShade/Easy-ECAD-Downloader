@@ -8,6 +8,7 @@ This section summarizes the current `Development` branch compared with `main` as
 
 ### Added
 
+- Added `qa:auth -- --terminal` to open a dedicated credential console and gate full-matrix startup on successful entry, preserving the existing cache after cancellation or invalid input.
 - Added visible terminal entry and an encrypted Windows volatile-registry cache for headless QA SamacSys credentials, reused across runs until restart or user-hive unload, with `qa:auth` setup and clearing commands.
 - Added Mouser SamacSys support for part detection, preview loading, upstream KiCad ZIP download, and KiCad library or loose-file export.
 - Added Farnell SamacSys support through the shared SamacSys distributor flow.
@@ -23,6 +24,7 @@ This section summarizes the current `Development` branch compared with `main` as
 
 ### Changed
 
+- Switched browser QA to headed Chrome on a private Windows desktop, starting minimized and activating only within that desktop, with debugging-pipe continuity, owned process-tree cancellation and verified cleanup before temporary-profile deletion.
 - Renamed the extension to Easy ECAD Downloader, including package metadata, UI labels, documentation links, generated KiCad metadata, and the default library folder name.
 - Split the service worker into a thin Manifest V3 entrypoint plus a runtime/router module with source adapters and shared core helpers.
 - Split the EasyEDA-to-KiCad converter into focused parser, emitter, shared conversion, and OBJ-to-WRL modules while keeping `src/kicad_converter.js` as the public facade.

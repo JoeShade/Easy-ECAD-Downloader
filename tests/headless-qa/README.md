@@ -1,13 +1,14 @@
-# Headless QA on Windows 11
+# Background browser QA on Windows 11
 
 This developer-only harness operates the repository's actual unpacked extension in
-headless Chrome for Testing. KiCad 10 CLI renders downloaded libraries without a
-desktop session or interactive KiCad windows. Production source and the manifest
-are unchanged.
+headed Chrome for Testing on a private Windows desktop. Its windows never appear
+on the user's input desktop or take focus from their work. KiCad 10 CLI renders
+downloaded libraries without interactive KiCad windows. Production source and the
+manifest are unchanged. The existing `tests/headless-qa/` path and commands remain.
 
 ## Install
 
-Use Node **22.13+ or 24+** for browser QA, Python **3.10+**, and KiCad **10.x**.
+Use Windows **11**, Node **22.13+ or 24+**, Python **3.10+**, and KiCad **10.x** for browser QA.
 The regression suite retains its existing Node support; the optional Puppeteer
 25.13.0 dependency requires Node 22.12 or newer. Windows PowerShell can use
 `npm.cmd` when its execution policy prevents `npm.ps1` from running.
@@ -32,12 +33,22 @@ If browser installation was skipped, run:
 npx.cmd puppeteer browsers install chrome
 ```
 
-Preflight launches headless Chrome over a debugging pipe, dynamically installs
+Preflight launches headed Chrome over a debugging pipe, dynamically installs
 the extension, verifies the live service worker and `chrome.action.openPopup`,
 opens the actual popup on a blank tab, and checks Python/Pillow plus KiCad's
 installed version and command help. It does not demonstrate product detection.
-The implementation follows the [Puppeteer extension guide](https://pptr.dev/guides/chrome-extensions);
+Missing cached Chrome reports the install command above before native launch. The implementation follows the [Puppeteer extension guide](https://pptr.dev/guides/chrome-extensions);
 the installed implementation is also checked by preflight.
+
+The configured `--python` executable also runs the standard-library Win32 launcher.
+It creates a unique `EasyEcadQa-*` desktop, forwards Puppeteer's existing debugging
+pipes, and starts Chrome suspended until it belongs to a Windows job that terminates
+its process tree if the launcher exits unexpectedly. No debugging port is opened.
+Chrome's first window is created minimized and unfocused, then restored and activated
+only on that private desktop so genuine action popups and screenshots work normally.
+The harness never switches the user's input desktop. Desktop isolation is mandatory:
+an unavailable desktop, job or debugging pipe blocks the run without a foreground
+or headless fallback. Offline smoke tests remain cross-platform.
 
 ## Execute one exact product URL
 
@@ -49,7 +60,7 @@ Use a new ID for every attempt. Reusing an existing run directory fails instead
 of appending to old downloads or replacing evidence. Output inside the repository
 must be gitignored. External output directories are also supported.
 
-The product tab is activated before `chrome.action.openPopup()` creates the real
+The product tab is activated within the private desktop before `chrome.action.openPopup()` creates the real
 action popup. The target is additionally verified using the extension's popup
 view type. An ordinary `popup.html` tab is never substituted. The runner calls
 the real content-script `GET_PART_CONTEXT` handler with no expected identifiers.
@@ -127,8 +138,10 @@ long campaign/run paths can exceed Windows path limits for Chrome's extension
 storage and fail with `IO error: .../LOCK: File not found.`. Browser downloads use
 their own unique `ecad-dl-*` directory in the system temporary directory; evidence
 copies retain the delivered relative library layout under the selected run.
-Both temporary paths are logged. Profiles are deleted after closing Chrome,
-including failure cleanup. Acquisition directories are removed only when empty
+Both temporary paths and the private desktop mode are logged. Profiles are deleted
+only after the launcher exits and its receipt confirms the Chrome process tree has
+stopped and the desktop was released, including failure cleanup. Missing cleanup
+confirmation retains both temporary directories with a BLOCKED finding. Acquisition directories are removed only when empty
 or all contents have been preserved. Failed preservation and unaccounted partial
 downloads retain that directory with a recovery path in `execution.log`.
 No normal Chrome profile, existing sign-in session, or credentials are
@@ -142,10 +155,37 @@ cause a separate browser startup timeout, even without loading an extension.
 Run the harness in a normal local terminal or through approved native-process
 execution when those subprocess permissions are unavailable. Short profile paths
 address the extension-storage failure; they do not grant process permissions.
+Ctrl+C requests termination of the owned browser job and runs evidence cleanup.
+An abrupt launcher/parent exit also terminates the owned browser tree. A forced
+exit without a cleanup receipt retains the temporary directories for inspection.
 
 ### Reuse SamacSys credentials until Windows restarts
 
-Run this from an interactive PowerShell terminal in the repository root:
+Before starting a full matrix, run this gate from the repository root (including
+from a noninteractive agent terminal):
+
+```powershell
+Remove-Item Env:DEBUG, Env:NODE_DEBUG, Env:NODE_DEBUG_NATIVE -ErrorAction SilentlyContinue
+npm.cmd run qa:auth -- --terminal
+if ($LASTEXITCODE -ne 0) { throw 'Credential setup did not complete; do not start the matrix' }
+```
+
+It opens a separate visible console on your working desktop and waits for you to
+enter SamacSys username/password there. Both fields remain visible as you type.
+This console intentionally takes focus; Chrome continues on its private desktop.
+No credential-console output is captured by the calling agent or evidence logs.
+The command prompts for a new pair even when the cache already contains credentials.
+A valid submission replaces the cache; cancellation or invalid input keeps the old
+cache and returns a failure, so the matrix must not begin. Closing the console,
+Ctrl+C, Escape or the 15-minute setup timeout also blocks startup.
+
+After exit code 0, initialise the campaign, run preflight, then include
+`--samacsys-login` for each SamacSys case. Cache provisioning is not upstream login
+verification. Do not launch the full matrix in parallel with credential setup.
+The tracing-variable removal above affects only that shell and its child commands.
+Repeat it in each separate agent shell invocation that uses credentials.
+
+For manual entry in an already interactive terminal, the existing command remains:
 
 ```powershell
 npm.cmd run qa:auth
@@ -157,6 +197,9 @@ visible as you type. Use the account accepted by SamacSys/Component Search Engin
 distributor account credentials. Enter finishes a field; Backspace edits it;
 Ctrl+U clears it; Ctrl+C or Escape cancels. `qa:auth` populates the cache independently
 of product navigation; an authenticated run can also populate it on first use.
+`qa:auth -- --prompt` always asks for replacement credentials in the current terminal;
+it is also the child mode used by `--terminal`. `--clear`, `--terminal` and `--prompt`
+are mutually exclusive.
 Subsequent `--samacsys-login` runs reuse it automatically, including after failures
 and after closing terminal/browser windows. Cached runs also work without a TTY;
 initial entry requires one. Redirected credential input is rejected.

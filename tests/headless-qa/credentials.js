@@ -60,7 +60,7 @@ export function readTerminalLine(label, { input = process.stdin, output = proces
 // Load or prompt for credentials, protect their diagnostic echoes, and expose
 // them only for the awaited action. Sanitize errors before releasing protection;
 // finally clear the per-run object while the reusable cache retains its copy.
-export async function withSamacsysCredentials(enabled, action, io, cache = windowsCredentialCache()) {
+export async function withSamacsysCredentials(enabled, action, io, cache = windowsCredentialCache(), { prompt = false } = {}) {
   if (!enabled) return action(null);
   if (["DEBUG", "NODE_DEBUG", "NODE_DEBUG_NATIVE"].some(key => process.env[key])) {
     throw new Error("Disable Node/Puppeteer debug tracing before entering SamacSys credentials");
@@ -68,7 +68,7 @@ export async function withSamacsysCredentials(enabled, action, io, cache = windo
   let credentials = { username: "", password: "" };
   let release = () => {};
   try {
-    const cached = await cache.read();
+    const cached = prompt ? null : await cache.read();
     if (cached) credentials = cached;
     else {
       credentials.username = (await readTerminalLine("SamacSys username", io)).trim();

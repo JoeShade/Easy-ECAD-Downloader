@@ -28,6 +28,8 @@ This file records short implementation notes that supplement, but do not replace
 ## Optional QA harness
 
 - `tests/headless-qa/` keeps browser acquisition, evidence preservation and KiCad inspection in developer-only modules. Browser-run rendering checks current file sizes and SHA-256 hashes against the verified final-asset inventory.
+- Headed Chrome starts minimized on a private Win32 desktop, then restores there for genuine popup/screenshot checks without switching the user's input desktop. A Python launcher forwards the CDP pipes, owns the Chrome process job, and confirms process/desktop cleanup before profile deletion; isolation failure has no foreground fallback.
+- Full-matrix startup first waits for `qa:auth -- --terminal`: a separate visible credential console with unredirected streams, a parent cancellation pipe and exit-status gating. New credentials replace the volatile cache only after valid entry; SamacSys rows then opt into the existing session provisioning path.
 - Concurrent JSON saves publish snapshots in call order. Download accounting survives popup closure; temporary acquisition cleanup rechecks preserved bytes after confirmed Chrome exit and retains uncertain files for recovery.
 - `npm run qa:lint` and `npm run qa:smoke` share their Python pins and commands with the offline QA CI job. Native browser/KiCad runs remain opt-in evidence gathering.
 

@@ -13,6 +13,14 @@ import { accountDownloads } from "./download_accounting.js";
 import { preserveDownloads } from "./download_preservation.js";
 
 vi.mock("puppeteer", () => ({ default: { launch: vi.fn(), executablePath: () => "chrome-for-testing" } }));
+vi.mock("./private_desktop.js", () => ({
+  launchPrivateDesktopBrowser: async ({ profile, ...options }) => {
+    const browser = await puppeteer.launch({ ...options, userDataDir: profile });
+    return { browser, desktop: { name: "test-desktop", info: { name: "test-desktop" },
+      verifyExit: async () => true, requestStop: () => browser.process()?.kill() } };
+  },
+  createPrivateWindow: async () => ({ page: {}, window: { initialState: "minimized", restoredOnPrivateDesktop: true } })
+}));
 vi.mock("./diagnostics.js", () => ({ attachDiagnostics: async () => ({
   close: async () => {}, summary: () => ({ count: 0 })
 }) }));
@@ -93,6 +101,8 @@ describe("isolated Chrome profiles", () => {
     expect(first.downloadRoot).not.toBe(second.downloadRoot);
     expect(path.relative(run.dir, first.profile).startsWith("..")).toBe(true);
     expect(first.settings).toEqual(settings);
+    expect(first.browserMode).toMatchObject({ headless: false, pipe: true,
+      desktop: { name: "test-desktop" }, window: { initialState: "minimized" } });
     await closeBrowser(first, run);
     await expect(fs.stat(first.profile)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(fs.stat(first.downloadRoot)).rejects.toMatchObject({ code: "ENOENT" });
@@ -214,7 +224,7 @@ describe("isolated Chrome profiles", () => {
     downloadRoots.push(context.downloadRoot);
     vi.useFakeTimers();
     const closing = closeBrowser(context, run);
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(10000);
     await closing;
     vi.useRealTimers();
     await expect(fs.stat(context.profile)).resolves.toBeDefined();
@@ -222,6 +232,36 @@ describe("isolated Chrome profiles", () => {
     expect(run.check).toHaveBeenCalledWith("environment", "BLOCKED", expect.any(String),
       expect.objectContaining({ cause: "browser cleanup" }));
     expect(processHandle.listenerCount("exit")).toBe(0);
+  });
+
+  it("requires the native process-tree receipt even after the launcher exits", async () => {
+    const run = await runFixture();
+    puppeteer.launch.mockImplementation(async options => {
+      profiles.push(options.userDataDir);
+      return browserStub(options.userDataDir);
+    });
+    const context = await launchExtension(run, 1000);
+    downloadRoots.push(context.downloadRoot);
+    context.desktop.verifyExit = async () => false;
+    await closeBrowser(context, run);
+    await expect(fs.stat(context.profile)).resolves.toBeDefined();
+    await expect(fs.stat(context.downloadRoot)).resolves.toBeDefined();
+    expect(run.check).toHaveBeenCalledWith("environment", "BLOCKED", expect.any(String),
+      expect.objectContaining({ cause: "browser cleanup" }));
+  });
+
+  it("retains startup directories when native launch cleanup cannot be confirmed", async () => {
+    const run = await runFixture();
+    puppeteer.launch.mockImplementation(async options => {
+      profiles.push(options.userDataDir);
+      const preferences = JSON.parse(await fs.readFile(path.join(options.userDataDir, "Default/Preferences"), "utf8"));
+      downloadRoots.push(preferences.download.default_directory);
+      throw Object.assign(new Error("Private launch failed"), { desktop: { verifyExit: async () => false } });
+    });
+    await expect(launchExtension(run, 1000)).rejects.toThrow("Private launch failed");
+    await expect(fs.stat(profiles[0])).resolves.toBeDefined();
+    await expect(fs.stat(downloadRoots[0])).resolves.toBeDefined();
+    expect(run.log).toHaveBeenCalledWith("browser-cleanup-retained", expect.any(Object));
   });
 });
 

@@ -180,23 +180,25 @@ async function executeRun(opts, credentials) {
   let context, popup, renderReady = false, interrupted = false;
   const interrupt = () => {
     interrupted = true;
-    if (context) context.browser.close().catch(() => context.browser.process()?.kill());
+    if (context?.desktop) context.desktop.requestStop();
+    else if (context) context.browser.close().catch(() => context.browser.process()?.kill());
   };
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, interrupt);
   try {
     await run.stage("environment", async () => {
       renderReady = await pythonPreflight(run, opts, meta);
-      context = await launchExtension(run, opts.timeout, credentials, true);
+      context = await launchExtension(run, opts.timeout, credentials, true, opts.python);
       if (credentials) { credentials.username = ""; credentials.password = ""; }
       credentials = null;
       if (interrupted) throw issue("Run interrupted by terminal", "harness");
       Object.assign(meta, { chrome: await context.browser.version(), extensionId: context.id,
         effectiveSettings: context.settings, authentication: context.authentication,
-        browserDownloadRoot: context.downloadRoot, evidenceDownloadRoot: path.join(run.dir, "downloads") });
+        browserDownloadRoot: context.downloadRoot, evidenceDownloadRoot: path.join(run.dir, "downloads"),
+        browserMode: context.browserMode });
       await atomicJson(path.join(run.dir, "metadata.json"), meta);
-      await run.check("environment", "PASS", "Headless Chrome loaded actual extension and live service worker in isolated profile");
+      await run.check("environment", "PASS", "Headed Chrome loaded actual extension and live service worker on a private Windows desktop");
     });
-    const page = await context.browser.newPage();
+    const page = context.page;
     let reference;
     await run.stage("navigation", async () => {
       let response;
