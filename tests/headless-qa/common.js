@@ -87,8 +87,11 @@ export function options(extra = {}) {
   } });
   for (const key of ["timeout", "download-timeout", "render-timeout", "retries"]) {
     values[key] = Number(values[key]);
-    if (!Number.isInteger(values[key]) || values[key] < (key === "retries" ? 0 : 1) ||
-        (key === "retries" && values[key] > 3)) throw new Error(`Invalid --${key}`);
+    // Node timers support signed 32-bit millisecond delays. The renderer's
+    // enclosing process receives thirty command budgets in run.js.
+    const maximum = key === "retries" ? 3 : Math.floor(2147483647 / (key === "render-timeout" ? 30 : 1));
+    if (!Number.isSafeInteger(values[key]) || values[key] < (key === "retries" ? 0 : 1) ||
+        values[key] > maximum) throw new Error(`Invalid --${key}`);
   }
   return values;
 }

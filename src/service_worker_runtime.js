@@ -106,6 +106,9 @@ async function exportPart(partContext, options = {}, deps = createRuntimeDeps())
   return adapter.exportPart(normalizedPartContext, options);
 }
 
+// Each listener shares the worker's adapters and download cleanup subscription.
+// Returning true keeps the message channel open until async work sends its one
+// structured success or failure response to the popup.
 function registerServiceWorkerRuntime(chromeApi = globalThis.chrome, overrides = {}) {
   const deps = createRuntimeDeps({ ...overrides, chromeApi });
 

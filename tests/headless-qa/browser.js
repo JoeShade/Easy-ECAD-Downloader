@@ -165,7 +165,7 @@ export async function closeBrowser(context, run) {
 }
 
 // Activate only within the verified private desktop. The action popup reads
-// the active browser tab; activation never switches the user's input desktop.
+// the active browser tab; the user's input desktop stays selected throughout.
 export async function activateProduct(context, page) {
   await page.bringToFront();
   const tab = await context.worker.evaluate(async url => {

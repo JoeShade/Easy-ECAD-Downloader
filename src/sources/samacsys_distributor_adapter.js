@@ -5,7 +5,6 @@
  * common preview and export path for Mouser, Farnell, and similar partners.
  */
 
-import { parseKicadSymbolName } from "../core/library_store.js";
 import {
   loadSettings,
   resolveSamacsysAuthorizationHeader
@@ -124,13 +123,11 @@ function createSamacsysDistributorAdapter(deps) {
                 libraryName
               );
 
-          const symbolName = parseKicadSymbolName(rewrittenSymbol) || symbol.name;
           downloadCount += await writeSymbolArtifact({
             chromeApi,
             downloads,
             exportContext,
             symbolContent: rewrittenSymbol,
-            symbolName,
             individualFilename: symbol.filename
           });
         }

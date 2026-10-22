@@ -1,8 +1,8 @@
 // Core export/conversion work in this file: JoeShade and Josh Webster
 /*
  * Shared download helpers for the service worker. These wrap chrome.downloads
- * so adapters can write text, binary, and URL-backed artifacts without
- * duplicating Blob/data-URL fallback logic or object-URL cleanup.
+ * so adapters can write text, binary, and URL-backed artifacts through shared
+ * Blob/data-URL fallback logic and object-URL cleanup.
  */
 
 import { arrayBufferToBase64, textToBase64 } from "./preview_data.js";
@@ -41,9 +41,12 @@ function createDownloadApi(chromeApi, urlApi = globalThis.URL, blobCtor = global
           releaseDownloadUrl(downloadId);
         }
       });
-    } catch { /* A cleanup query must not fail or revoke an in-progress write. */ }
+    } catch { /* Terminal events retain cleanup ownership after a failed query. */ }
   }
 
+  // Model writes share one deadline across browser startup and completion.
+  // A late startup callback triggers cancellation; the URL remains alive until
+  // the browser confirms cancellation or publishes a terminal state.
   function downloadGeneratedUrl(filename, url, conflictAction, completion, objectUrl = false) {
     const awaitCompletion = completion?.waitForCompletion === true;
     const timeoutMs = completion?.timeoutMs ?? MODEL_DOWNLOAD_TIMEOUT_MS;

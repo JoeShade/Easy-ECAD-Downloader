@@ -15,6 +15,39 @@ SAMPLE = HERE / "fixtures" / "known-good" / "fixture.pretty" / "qa_block.kicad_m
 
 
 class FixtureTests(unittest.TestCase):
+    def test_browser_assembly_requires_every_reference_in_verified_model_inventory(self):
+        from unittest.mock import patch
+        from render import render_assets
+        for external in (True, False):
+            with self.subTest(external=external), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = root / 'downloads'
+                source.mkdir()
+                model = (root if external else source) / 'part.wrl'
+                model.write_text('Shape { geometry Box { size 1 1 1 } }')
+                reference = model.as_posix() if external else model.name
+                footprint = source / 'part.kicad_mod'
+                footprint.write_text('(footprint "part" (layer "F.Cu") '
+                                     '(fp_rect (start -1 -1) (end 1 1) (layer "F.Fab")) '
+                                     f'(model "{reference}"))')
+                evidence = Evidence(root / 'renders', 1)
+                verified = {footprint.name} if external else {footprint.name, model.name}
+                # Native commands stay mocked; this test establishes which model
+                # provenance may reach the assembly importer boundary.
+                with patch('render.calibrate', return_value=True), \
+                        patch.object(evidence, 'command', return_value={'exitCode': 1}), \
+                        patch('render.assembly_views', return_value={
+                            'execution': 'COMPLETED', 'images': []}) as assembly:
+                    render_assets(evidence, 'fake-cli', source, root / 'inspection', verified)
+                self.assertEqual(assembly.call_count, 0 if external else 1)
+                if external:
+                    self.assertTrue(any(check['outcome'] == 'BLOCKED' and
+                                        'verified model inventory' in check['establishes']
+                                        for check in evidence.data['checks']))
+                    self.assertTrue(all(not item['attempted'] for item in
+                                        evidence.data['coverage']['inspections']
+                                        if item['kind'] == 'assembly'))
+
     def test_inventory_rechecks_current_bytes_before_authorizing_browser_assets(self):
         import copy
         with tempfile.TemporaryDirectory() as temporary:
@@ -375,6 +408,16 @@ class FixtureTests(unittest.TestCase):
         before = json.dumps(original)
         self.assertNotIn('covered-', json.dumps(redact(original)))
         self.assertEqual(json.dumps(original), before)
+
+    def test_python_redaction_protects_short_auth_and_session_names(self):
+        import json
+        original = {'session': 'covered-session', 'sid': 'covered-sid', 'auth': 'covered-auth',
+                    'url': 'https://example.test/?session=covered-query&sid=covered-short&auth=covered-login&part=ABC/TR',
+                    'mpn': 'ABC/TR'}
+        safe = redact(original)
+        self.assertNotIn('covered-', json.dumps(safe))
+        self.assertEqual(safe['mpn'], 'ABC/TR')
+
     def test_preserves_geometry_and_transforms_and_closed_outline(self):
         import shutil
         with tempfile.TemporaryDirectory() as temporary:

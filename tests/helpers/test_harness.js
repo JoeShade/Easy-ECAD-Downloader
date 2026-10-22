@@ -20,12 +20,16 @@ export function readRepoFile(relativePath) {
 
 let moduleImportNonce = 0;
 
+// A distinct URL bypasses ESM's module cache so each test binds fresh browser
+// globals. Shared imported dependencies retain their own ordinary module cache.
 export async function importRepoModule(relativePath) {
   const moduleUrl = pathToFileURL(path.join(REPO_ROOT, relativePath));
   moduleUrl.searchParams.set("t", String(moduleImportNonce++));
   return import(moduleUrl.href);
 }
 
+// Execute classic-script source with explicit browser substitutes. Tests supply
+// text transforms for module syntax and append exports inside the same VM scope.
 export function runSourceFile(
   relativePath,
   { context = {}, transforms = [], append = "" } = {}

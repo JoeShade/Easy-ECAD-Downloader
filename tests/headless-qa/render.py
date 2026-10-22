@@ -297,6 +297,14 @@ def render_assets(evidence, cli, source, project, verified_paths=None):
             if any(not model["downloadVerified"] for model in referenced):
                 evidence.check("BLOCKED", "Primary assembly references a final model asset that was not verified", category="input", file=str(footprint))
                 continue
+            # Browser evidence authorizes the recorded downloaded models. Require
+            # every original reference to resolve to one of those verified paths
+            # before KiCad can include its geometry in the assembly images.
+            verified_references = {reference["resolved"] for model in referenced if model["downloadVerified"]
+                                   for reference in model["references"]}
+            if verified_paths is not None and any(model["resolved"] not in verified_references for model in fixture["models"]):
+                evidence.check("BLOCKED", "Primary assembly reference is outside the verified model inventory", category="input", file=str(footprint))
+                continue
             exercise = assembly_views(evidence, cli, board, f"assembly-{index}", evidence.output / "assemblies" / str(index))
             for model in inventory:
                 references = [reference for reference in model["references"] if reference["footprint"] == footprint.relative_to(copied).as_posix()]

@@ -6,6 +6,9 @@
 
 import { parseSvgPath, toBool, toNumber } from "./shared.js";
 
+// EasyEDA separates fields with '~' and groups pin sub-records with '^^'. Keep
+// these positional wire-format details here; emitters receive named fields and
+// the source origin recorded in bbox for their later coordinate conversion.
 function parseEasyedaSymbol(cadData) {
   const info = cadData?.dataStr?.head?.c_para || {};
   const lcsc = cadData?.lcsc || {};
@@ -39,6 +42,8 @@ function parseEasyedaSymbol(cadData) {
   for (const line of shapes) {
     const designator = line.split("~")[0];
     if (designator === "P") {
+      // The source pin path, visible label, inversion dot, and clock marker live
+      // in separate sub-records even when an optional marker is hidden.
       const segments = line.split("^^");
       const settingsFields = segments[0].split("~").slice(1);
       const pinPathFields = (segments[2] || "").split("~");

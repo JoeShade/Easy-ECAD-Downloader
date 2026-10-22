@@ -1,14 +1,16 @@
 """Win32 boundary for headed QA Chrome, its private desktop and process job.
 
-The launcher forwards the inherited CRT descriptor table so Puppeteer's private
-debugging pipes (descriptors 3/4) reach Chrome without a listening network port.
-No input-desktop switching API is exposed here.
+The launcher forwards the inherited C-runtime descriptor table so Puppeteer's
+private debugging pipes (descriptors 3/4) reach Chrome. New windows belong to
+the named private desktop; the user's selected input desktop remains intact.
 """
 import ctypes
 from ctypes import wintypes as w
 import subprocess
 
 
+# These layouts mirror the Windows SDK, including pointer-sized handles and
+# alignment. Matching the native layout preserves inherited pipes and job limits.
 class StartupInfo(ctypes.Structure):
     _fields_ = [("cb", w.DWORD), ("lpReserved", w.LPWSTR),
                 ("lpDesktop", w.LPWSTR), ("lpTitle", w.LPWSTR),
@@ -81,6 +83,7 @@ class WindowsDesktop:
         bind(self.kernel, "CloseHandle", [w.HANDLE])
 
     def input_desktop(self):
+        """Read the selected input desktop name and close its temporary query handle."""
         handle = checked(self.user.OpenInputDesktop(0, False, 1))
         try:
             name, needed = ctypes.create_unicode_buffer(256), w.DWORD()
@@ -93,6 +96,7 @@ class WindowsDesktop:
         return checked(self.user.CreateDesktopW(name, None, None, 0, 0x01ff, None))
 
     def create_job(self):
+        """Create a job that terminates all owned descendants when its handle closes."""
         job = checked(self.kernel.CreateJobObjectW(None, None))
         try:
             limits = ExtendedJobLimits()
@@ -104,10 +108,11 @@ class WindowsDesktop:
             raise
 
     def create_process(self, command, desktop):
+        """Inherit Puppeteer's debugging pipes and create suspended Chrome on its desktop."""
         import msvcrt
 
         # Node/libuv passes the five pipe descriptors in STARTUPINFO's CRT table.
-        # Copy that table, but discard the helper's hidden-console show flags.
+        # Copy that table into fresh startup flags for Chrome's private desktop.
         inherited, startup = StartupInfo(), StartupInfo()
         self.kernel.GetStartupInfoW(ctypes.byref(inherited))
         if inherited.cbReserved2 < 4 + 5 * (1 + ctypes.sizeof(w.HANDLE)):
@@ -123,8 +128,8 @@ class WindowsDesktop:
         startup.hStdOutput, startup.hStdError = inherited.hStdOutput, inherited.hStdError
         process = ProcessInfo()
         arguments = ctypes.create_unicode_buffer(subprocess.list2cmdline(command))
-        # Suspend until the child belongs to the kill-on-close job: there is no
-        # interval in which Chrome can create an unowned descendant process.
+        # Suspension keeps Chrome's first thread stopped until the launcher
+        # assigns the child to its descendant-owning, kill-on-close job.
         checked(self.kernel.CreateProcessW(command[0], arguments, None, None, True,
                 0x08000004, None, None, ctypes.byref(startup), ctypes.byref(process)))
         return process

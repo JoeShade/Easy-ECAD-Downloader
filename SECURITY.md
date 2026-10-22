@@ -32,6 +32,12 @@ The optional Firefox authentication token and optional SamacSys username/passwor
 
 Relay auth and upstream SamacSys auth are intentionally separate. The relay auth header is sent only to the configured user-managed relay. Upstream SamacSys auth is sent only to SamacSys or inside a relay payload that asks the relay to contact SamacSys.
 
+The extension rejects redirects from the configured relay endpoint because the POST body can contain upstream cookies and sign-in details. Configure the final relay URL directly. Settings storage-read failures also stop UI saves and exports rather than substituting defaults that could overwrite saved credentials.
+
+SamacSys destinations require HTTPS on `componentsearchengine.com` or its subdomains at the standard port, with empty URL credentials, before upstream authentication is resolved. The relay example applies this rule to every redirect and clears forwarded cookies and authorization when the origin changes. Its deployment guide uses the `RELAY_BEARER_TOKEN` secret and a `Bearer <token>` header value in the extension settings.
+
+The repository-owned ZIP reader validates member checksums, expanded lengths and archive bounds before exporting CAD. It accepts classic stored/deflate single-disk archives with at most 256 MiB of expanded data; unsupported encryption, ZIP64 and multi-disk metadata fail explicitly.
+
 The repository does not host or operate a relay service. Users who configure a relay are responsible for its deployment, access controls, logs, and secret handling.
 
 To clear stored credentials, use the clear buttons in the settings page, untick remember-on-this-device options, or remove the extension's local/session storage from the browser. Removing the extension also clears its extension-owned storage in normal browser configurations.

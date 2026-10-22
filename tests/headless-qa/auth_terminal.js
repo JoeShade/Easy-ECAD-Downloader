@@ -1,12 +1,14 @@
 /*
  * Open a dedicated user-owned credential console before matrix execution.
  * The console has its own keyboard/output handles; the parent receives only
- * completion status and never captures the entered username or password.
+ * completion status; entered values stay in the user-owned console.
  */
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { repoRoot } from "./common.js";
 
+// A private control pipe carries cancellation and parent exit to PowerShell.
+// Only the console's successful exit releases the caller's startup gate.
 export function openCredentialTerminal({ timeout = 900000, spawnProcess = spawn } = {}) {
   if (process.platform !== "win32" || !process.env.SystemRoot) {
     throw new Error("The QA credential terminal requires Windows");
@@ -29,8 +31,8 @@ export function openCredentialTerminal({ timeout = 900000, spawnProcess = spawn 
     const interrupt = () => stop("QA credential setup cancelled; matrix startup must stop");
     const timer = setTimeout(() => stop("QA credential terminal timed out; matrix startup must stop"), timeout);
     for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, interrupt);
-    // The PowerShell helper never redirects the visible console's streams.
-    // Discard its own output as well so this path cannot become a transcript.
+    // The visible console owns its input/output handles. Drain the helper's
+    // separate streams so the parent retains completion status alone.
     child.stdout.resume();
     child.stderr.resume();
     child.stdin.on("error", () => { failure ||= new Error("QA credential terminal control channel closed"); });

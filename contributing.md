@@ -66,6 +66,8 @@ npm run validate
 
 `npm run validate` runs linting, the Vitest regression suite, a moderate-severity dependency audit, and whitespace checks. CI uses `npm ci` and the same validation script on the supported Node lines.
 
+On Windows PowerShell installations that block npm's script shim, use `npm.cmd` and `npx.cmd` for the same commands.
+
 For QA harness changes, follow [tests/headless-qa/README.md](tests/headless-qa/README.md)
 to install its pinned Python image and lint requirements, then run `npm run qa:lint`
 and `npm run qa:smoke` alongside normal validation. The `Offline QA harness` CI job
@@ -75,6 +77,16 @@ local opt-in runs with isolated evidence directories.
 The Vitest suite includes a history-wide security hygiene check. It is meant for full validation, CI, security cleanup, and before sharing pushed history; it does not need to be run manually for every intermediate local commit while iterating.
 
 Use `README.md` for the operator-facing overview. Use `systemDesign.md` for the implemented design and `docs/architecture-notes.md` for short implementation notes.
+
+## CI and delivery requirements
+
+CI runs on pushes and pull requests with the three Node validation jobs and the offline QA job. Repository settings must require those passing checks before merging to integration branches. Branch protection and current revision results require separate verification through GitHub; local validation establishes the local working tree's results.
+
+On 2026-10-22, GitHub reported `Development` unprotected and `main` protected with required status-check enforcement off and no required checks; the repository ruleset list was empty. Required merge gates remain unresolved. Enable all three Node validation checks and `Offline QA harness` for both integration branches, then verify them on the revision being merged.
+
+Automated packaging/delivery and a documented store-release/recovery procedure are currently absent. These remain unresolved review requirements. Browser-store publication requires the maintainer's release process and credentials; this repository provides no approved CD exception.
+
+Current automated lint covers JavaScript and the QA harness Python files. Dedicated lint for PowerShell, HTML/CSS, workflow YAML and the local `.agents` matrix scripts remains outside the required CI commands. Manual matrix Ruff/unit checks supplement this scope during review; they do not establish a CI gate.
 
 ## Change guidelines
 
@@ -86,6 +98,7 @@ Use `README.md` for the operator-facing overview. Use `systemDesign.md` for the 
 - Keep browser API orchestration in the worker, DOM extraction in the content script, and UI state in the popup.
 - Use the established naming styles: lower snake_case for JavaScript files, lower kebab-case for docs and image assets, and lower camelCase for function declarations.
 - Split maintained JavaScript before it grows past the repository line-count limits enforced by the hygiene suite.
+- Keep a responsibility explainer at the start of maintained code-bearing files and explain non-obvious domain rules and asynchronous behavior in plain language. Follow the affirmative comment guidance in `AGENTS.md`.
 
 ## Pull requests
 

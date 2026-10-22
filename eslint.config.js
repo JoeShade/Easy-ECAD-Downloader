@@ -9,6 +9,8 @@ const browserGlobals = {
   Blob: "readonly",
   DecompressionStream: "readonly",
   Event: "readonly",
+  Headers: "readonly",
+  Request: "readonly",
   Response: "readonly",
   TextDecoder: "readonly",
   TextEncoder: "readonly",

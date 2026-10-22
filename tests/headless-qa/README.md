@@ -1,10 +1,9 @@
 # Background browser QA on Windows 11
 
-This developer-only harness operates the repository's actual unpacked extension in
-headed Chrome for Testing on a private Windows desktop. Its windows never appear
-on the user's input desktop or take focus from their work. KiCad 10 CLI renders
-downloaded libraries without interactive KiCad windows. Production source and the
-manifest are unchanged. The existing `tests/headless-qa/` path and commands remain.
+This developer-only harness operates the actual unpacked extension in headed Chrome for Testing
+on a private Windows desktop, preserving the user's input desktop and focus. KiCad 10 CLI renders
+downloaded libraries without interactive KiCad windows. Production source, the manifest,
+and the existing `tests/headless-qa/` path and commands remain unchanged.
 
 ## Install
 
@@ -127,6 +126,10 @@ Options (milliseconds unless stated otherwise):
 | `--kicad-cli` | discovered | KiCad executable; also `KICAD_CLI` |
 | `--samacsys-login` | off | Reuse Windows' memory cache; prompt when it is empty |
 
+Timeouts are positive integer milliseconds, at most `2147483647` for browser/downloads
+and `71582788` for rendering's thirty-command process budget. Larger values fail validation
+before Node can shorten an overflowing timer to one millisecond.
+
 ```powershell
 npm.cmd run qa:preflight -- --id preflight-002 --python "C:\Python310\python.exe" --kicad-cli "C:\Program Files\KiCad\10.0\bin\kicad-cli.exe"
 ```
@@ -243,18 +246,15 @@ interruption. Node discards its credential references and redaction registry
 when the run ends. The shared Windows cache remains for later runs. Credentials
 are never written to the harness's files or logs.
 
-This option authenticates SamacSys requests; it does not log in to Mouser or
-Farnell, import browser cookies, or change distributor navigation. A product-page
-403 or protocol error can still stop the run before any SamacSys request.
+This option authenticates SamacSys requests while distributor navigation stays unauthenticated,
+with browser cookies unimported. A product-page 403 or protocol error can stop the run before SamacSys.
 
-Authentication, CAPTCHA, rate limits and access denials are recorded as external
-blockers. The harness stops without trying to evade them. Its default mode is
-unauthenticated. A SamacSys ZIP requiring authentication can therefore be blocked
-even when its previews work; the optional terminal credentials do not guarantee
-access. Successful
-preview evidence is retained, but an authentication-blocked export is not an
-end-to-end validated provider flow. Website login and account management remain
-outside the harness.
+Authentication, CAPTCHA, rate limits and access denials are recorded as external blockers;
+the harness stops without trying to evade them. Its default mode is unauthenticated.
+A SamacSys ZIP requiring authentication can therefore be blocked even when its previews
+work; optional terminal credentials do not guarantee access. Successful preview evidence
+is retained, but an authentication-blocked export is not an end-to-end validated provider
+flow. Website login and account management remain outside the harness.
 
 Named identifier checks separately compare page fields with detected MPN,
 distributor number and supported manufacturer name, then compare the actual
@@ -423,9 +423,9 @@ inside model exercises refer to the renderer's `commands` array. `--inventory
 <result.json>` requires schema 2, safe relative paths, explicit verification and
 matching current file sizes and SHA-256 hashes before rendering. Malformed symbol
 libraries and model references retain outstanding inspection records while valid
-assets keep their own coverage. Omit this flag for standalone rendering of a
-supplied directory. Existing schema-1 evidence
-is preserved rather than migrated.
+assets keep their own coverage. Browser assembly rendering requires every model
+reference to resolve to a verified inventoried model; other references block the assembly.
+Omit this flag for standalone rendering. Existing schema-1 evidence is preserved.
 
 Run and renderer `coverage` summarize expected, attempted, produced and outstanding
 assets/inspections. The renderer plans inspections before CLI preflight so blocked

@@ -1,6 +1,6 @@
 /*
  * These tests replay the repository security hygiene rules against every
- * reachable Git commit so already-cleaned secrets cannot hide in history.
+ * reachable Git commit, including historical content removed from the tip tree.
  */
 
 import { execFileSync } from "node:child_process";

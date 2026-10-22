@@ -1,7 +1,7 @@
 /*
  * Issues #14 and #18 exercise the production GET_PART_CONTEXT listener with
  * captured JLCPCB/LCSC markup. Generated identifier variants and edge cases
- * are synthetic; those substitutions do not represent separate live captures.
+ * are synthetic and share the original captured layout.
  */
 import { describe, expect, it } from "vitest";
 import { loadContentScript } from "./helpers/content_script_harness.js";
@@ -33,7 +33,7 @@ describe("LCSC current product summary (issue #18)", () => {
   });
 
   // These substitutions cover every reported identifier using the captured
-  // layout; they are not separate live-page captures.
+  // layout; live-page acceptance requires independent acquisition evidence.
   it.each(lcscProducts)("preserves $case MPN $mpn and catalogue lookup $id", product => {
     const markup = capturedSummary().replaceAll("3296W-1-103LF", product.mpn).replaceAll("C34846", product.id);
     const page = loadContentScript(markup, { url: product.url });

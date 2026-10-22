@@ -1,6 +1,6 @@
 /*
  * Regression fixtures inject browser outcomes at the real runtime boundary.
- * These deterministic cases do not reproduce Windows path budgeting.
+ * These deterministic cases exercise observed browser filenames and receipt matching.
  */
 import { describe, expect, it, vi } from "vitest";
 import cases from "./fixtures/issue_17.json";
@@ -16,6 +16,8 @@ const footprint = `(footprint "Test"
   )
 )`;
 
+// Drive the real worker with injected browser outcomes while retaining generated
+// Blob/data-URL bytes for exact footprint checks. Each run gets separate state.
 function setup({ row = cases[0], loose = false, blob = false, behavior, fetchModel, sourceFootprint = footprint } = {}) {
   const harness = createServiceWorkerChrome({
     storageState: { downloadIndividually: loose, libraryDownloadRoot: "KiCad/Workspace" },

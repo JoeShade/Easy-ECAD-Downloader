@@ -17,6 +17,27 @@ import {
   saveStoredSymbolLibrary
 } from "./library_store.js";
 
+const symbolLibraryWrites = new WeakMap();
+
+// Serialize the read/merge/save/download-start sequence per browser and library.
+// Every queued export reads its predecessor's saved symbols; failed writes leave
+// the queue usable, and unrelated library folders can still export concurrently.
+async function serializeSymbolLibraryWrite(chromeApi, key, write) {
+  let writes = symbolLibraryWrites.get(chromeApi);
+  if (!writes) {
+    writes = new Map();
+    symbolLibraryWrites.set(chromeApi, writes);
+  }
+  const previous = writes.get(key) || Promise.resolve();
+  const current = previous.catch(() => {}).then(write);
+  writes.set(key, current);
+  try {
+    return await current;
+  } finally {
+    if (writes.get(key) === current) writes.delete(key);
+  }
+}
+
 function resolveExportOptions(options = {}) {
   const resolvedOptions = {
     symbol: options.symbol !== false,
@@ -57,7 +78,6 @@ async function writeSymbolArtifact({
   downloads,
   exportContext,
   symbolContent,
-  symbolName,
   individualFilename
 }) {
   if (exportContext.settings.downloadIndividually) {
@@ -69,28 +89,29 @@ async function writeSymbolArtifact({
     return 1;
   }
 
-  const symbolBlock = extractSymbolBlock(symbolContent);
-  const existingLibrary = await loadStoredSymbolLibrary(
-    chromeApi,
-    exportContext.symbolLibraryKey
-  );
-  const mergedLibrary = mergeSymbolIntoLibrary(
-    existingLibrary || symbolContent,
-    symbolBlock,
-    symbolName
-  );
-  await saveStoredSymbolLibrary(
-    chromeApi,
-    exportContext.symbolLibraryKey,
-    mergedLibrary
-  );
-  await downloads.downloadTextFile(
-    exportContext.libraryPaths.symbolFile,
-    mergedLibrary,
-    "application/octet-stream",
-    "overwrite"
-  );
-  return 1;
+  return serializeSymbolLibraryWrite(chromeApi, exportContext.symbolLibraryKey, async () => {
+    const symbolBlock = extractSymbolBlock(symbolContent);
+    const existingLibrary = await loadStoredSymbolLibrary(
+      chromeApi,
+      exportContext.symbolLibraryKey
+    );
+    const mergedLibrary = mergeSymbolIntoLibrary(
+      existingLibrary || symbolContent,
+      symbolBlock
+    );
+    await saveStoredSymbolLibrary(
+      chromeApi,
+      exportContext.symbolLibraryKey,
+      mergedLibrary
+    );
+    await downloads.downloadTextFile(
+      exportContext.libraryPaths.symbolFile,
+      mergedLibrary,
+      "application/octet-stream",
+      "overwrite"
+    );
+    return 1;
+  });
 }
 
 async function writeTextArtifact({

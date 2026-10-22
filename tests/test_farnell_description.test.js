@@ -1,7 +1,8 @@
 /*
  * Issue #15 regression fixtures isolate description parsing and verify the
  * identity sent through GET_PART_CONTEXT and reconstructed SamacSys URLs.
- * Reduced report fixtures are not evidence of live browser acceptance.
+ * Reduced report fixtures establish deterministic parsing; native QA establishes
+ * live browser acceptance separately.
  */
 import { describe, expect, it } from "vitest";
 import products from "./fixtures/issue_15.json";
@@ -27,7 +28,8 @@ function expectIdentity(context, product, manufacturer = "YAGEO") {
 describe.each(products)("$brand description identity", product => {
   it.each(['property="og:description"', 'name="description"'])(
     "preserves the full issue identity from %s alone", attribute => {
-      // A query-only URL and empty body cannot supply a fallback identity.
+      // The query supplies only the order code; description metadata supplies
+      // the manufacturer and full manufacturer part number in this case.
       const page = loadContentScript("", {
         url: `${new URL(product.url).origin}/webapp/ProductDisplay?partNumber=${product.orderCode}`,
         headMarkup: `<meta ${attribute} content="Buy ${product.mpn} - YAGEO - Resistor.">`

@@ -43,6 +43,9 @@ const footprintPreviewFallbackEl = popupDocument.getElementById("footprintPrevie
 // Store the most recently detected part context.
 let currentPartContext = null;
 let currentSettings = { ...DEFAULT_SETTINGS };
+let exportInProgress = false;
+let settingsReady = false;
+let settingsLoadError = "";
 
 // Show a status message and optionally mark it as an error.
 function setStatus(message, tone = "default") {
@@ -72,7 +75,7 @@ function hasSelection() {
 // Enable the download button only when there is a supported provider and a selection.
 function updateDownloadEnabled() {
   downloadButton.disabled =
-    !currentPartContext?.provider || isBlockedProvider() || !hasSelection();
+    !settingsReady || exportInProgress || !currentPartContext?.provider || isBlockedProvider() || !hasSelection();
 }
 
 function setPreviewProviderStyle(partContext) {
@@ -197,16 +200,25 @@ function applySettingsToUi(settings) {
     ...DEFAULT_SETTINGS,
     ...settings
   };
-  if (currentPartContext && isSamacsysProviderShared(currentPartContext.provider)) {
+  if (currentPartContext) {
     setPartContext(currentPartContext);
   } else {
     updateDownloadEnabled();
   }
 }
 
-// Load settings from extension storage.
-function loadSettings() {
-  return loadStoredSettings(chromeApi).then(applySettingsToUi);
+// Detection and storage reads can finish in either order. Previews and exports
+// start once saved settings are available, preserving the configured layout/auth.
+async function loadSettings() {
+  try {
+    const settings = await loadStoredSettings(chromeApi);
+    settingsReady = true;
+    applySettingsToUi(settings);
+  } catch {
+    settingsLoadError = "Failed to load settings. Reopen the popup to try again.";
+    setStatus(settingsLoadError, "error");
+    updateDownloadEnabled();
+  }
 }
 
 function openSettingsPage() {
@@ -257,6 +269,12 @@ function setPartContext(partContext) {
     currentPartContext.sourcePartNumber,
     currentPartContext.manufacturerPartNumber
   );
+
+  if (!settingsReady) {
+    setStatus(settingsLoadError || "Loading settings...", settingsLoadError ? "error" : "default");
+    updateDownloadEnabled();
+    return;
+  }
 
   if (isBlockedProvider(currentPartContext)) {
     setStatus(
@@ -312,7 +330,7 @@ settingsButton.addEventListener("click", openSettingsPage);
 
 // When clicked, validate selections and ask the background worker to export.
 downloadButton.addEventListener("click", () => {
-  if (!currentPartContext?.provider || isBlockedProvider()) {
+  if (!settingsReady || exportInProgress || !currentPartContext?.provider || isBlockedProvider()) {
     return;
   }
 
@@ -321,7 +339,9 @@ downloadButton.addEventListener("click", () => {
     return;
   }
 
-  downloadButton.disabled = true;
+  // Selection changes preserve the pending request until the worker replies.
+  exportInProgress = true;
+  updateDownloadEnabled();
   setStatus("Starting download...");
 
   chromeApi.runtime.sendMessage(
@@ -336,6 +356,7 @@ downloadButton.addEventListener("click", () => {
       }
     },
     (response) => {
+      exportInProgress = false;
       updateDownloadEnabled();
       if (chromeApi.runtime.lastError) {
         setStatus("Download failed. Check the console.", "error");

@@ -1,5 +1,5 @@
 /*
- * Exercise the private-desktop launch contract without native windows. Real
+ * Exercise the private-desktop launch contract using local process stubs. Real
  * receipts and pipe/process stubs cover isolation verification and cleanup.
  */
 import fs from "node:fs/promises";
@@ -132,6 +132,20 @@ describe("private desktop window", () => {
     await expect(createPrivateWindow(browser, 1000)).rejects.toThrow("did not start minimized");
     expect(page.bringToFront).not.toHaveBeenCalled();
     expect(session.detach).toHaveBeenCalledOnce();
+  });
+
+  it("retains the window failure when browser shutdown has already detached the session", async () => {
+    const { browser, session } = fixture();
+    session.send.mockRejectedValue(new Error("Private window creation timed out"));
+    session.detach.mockRejectedValue(new Error("Session already detached"));
+    await expect(createPrivateWindow(browser, 1000)).rejects.toThrow("Private window creation timed out");
+    expect(session.detach).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces a cleanup failure after otherwise successful window setup", async () => {
+    const { browser, session } = fixture();
+    session.detach.mockRejectedValue(new Error("Session cleanup failed"));
+    await expect(createPrivateWindow(browser, 1000)).rejects.toThrow("Session cleanup failed");
   });
 });
 

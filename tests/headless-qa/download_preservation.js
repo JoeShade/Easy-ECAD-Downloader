@@ -74,7 +74,7 @@ async function readRegularFile(root, parts) {
 }
 
 // Copy exclusively, then reread both roots so a concurrent change retains the
-// acquisition directory for recovery instead of authorizing its removal.
+// acquisition directory for recovery and keeps cleanup authorization withheld.
 async function preserveAsset(asset, sourceRoot, evidenceRoot) {
   const parts = segments(asset.relativePath);
   if (!Number.isSafeInteger(asset.size) || asset.size < 0 || !/^[a-f0-9]{64}$/i.test(asset.sha256 || "")) {

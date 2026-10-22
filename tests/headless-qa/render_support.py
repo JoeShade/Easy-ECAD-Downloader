@@ -20,7 +20,9 @@ def now():
 
 def redact(value):
     """Copy evidence recursively and remove secret fields and diagnostic identifiers."""
-    secret = re.compile(r'authorization|password|user[_-]?name|credential|cookie|phpsessid|sess(?:ion)?[_-]?(?:id|key|secret)|token|api[_-]?key|signature', re.I)
+    secret = re.compile(r'authorization|password|passwd|user[_-]?name|credential|cookie|phpsessid|'
+                        r'sess(?:ion)?[_-]?(?:id|key|secret)|^session$|^sid$|(?:^|[_-])auth(?:$|[_-])|'
+                        r'token|api[_-]?key|signature', re.I)
     if isinstance(value, dict):
         return {key: "[redacted]" if secret.search(key) else redact(item) for key, item in value.items()}
     if isinstance(value, list):

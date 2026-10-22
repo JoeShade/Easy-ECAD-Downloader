@@ -119,6 +119,8 @@ function findLabeledText(expectedLabels, exact = false) {
   );
 }
 
+// Match the supported product route on an approved host. Only the catalogue ID
+// in the route identifies the part; URL metadata remains separate evidence.
 function parseEasyedaProductUrl(value) {
   let url;
   try { url = new URL(value); } catch { return null; }
@@ -133,6 +135,8 @@ function parseEasyedaProductUrl(value) {
   return route?.exec(url.pathname)?.[1].toUpperCase() || null;
 }
 
+// A field belongs to the current product only when its whole ancestry and its
+// linked product identity qualify. Callers apply the same checks to descendants.
 function isCurrentEasyedaField(node) {
   if (node.closest("aside, nav, footer, script, style, template")) return false;
   for (let element = node; element; element = element.parentElement) {
@@ -150,14 +154,16 @@ function isCurrentEasyedaField(node) {
   return true;
 }
 
+// Collect adjacent label/value pairs, then qualify each table using its own
+// visible catalogue anchor. This keeps recommendations and nested data separate.
 function findEasyedaFieldPairs() {
   const isCurrentPair = ([label, value]) => value &&
     !label.parentElement.closest("dd, td, th") &&
     !value.querySelector("dt, dd, tr, script, style, template") &&
     [label, value].every(node => isCurrentEasyedaField(node) &&
       Array.from(node.querySelectorAll("*")).every(isCurrentEasyedaField));
-  // Modern JLCPCB wraps each dt/dd pair in a div. Keep adjacent siblings
-  // together; never combine the first label/value across nested groups.
+  // Modern JLCPCB wraps each dt/dd pair in a div. Adjacent siblings preserve
+  // the label/value association within each group.
   const root = document.querySelector("main") || document.body;
   const pairs = Array.from(root.querySelectorAll("dl dt"), label => [
     label, label.nextElementSibling?.matches("dd") ? label.nextElementSibling : null
@@ -167,7 +173,7 @@ function findEasyedaFieldPairs() {
       .filter(row => row.closest("table") === table)
       .map(row => Array.from(row.children).filter(cell => cell.matches("th, td")))
       .filter(cells => cells.length === 2 && isCurrentPair(cells));
-    // Current LCSC summaries have no semantic table class. Their own visible,
+  // Current LCSC summaries use plain tables. Their own visible,
     // complete catalogue field must qualify the table before reading its MPN.
     const isLcscSummary = /^(www\.)?lcsc\.com$/i.test(window.location.hostname) &&
       rows.some(([label, value]) => normalizeLabel(label.textContent || "") === "lcsc part #" &&
@@ -187,7 +193,7 @@ function findEasyedaFieldValues(expectedLabels) {
 function findManufacturerPartNumber() {
   const urlId = parseEasyedaProductUrl(window.location.href);
   const fieldIds = findEasyedaFieldValues(["jlcpcb part #", "lcsc part #"]);
-  // A URL alone cannot associate a possibly stale MPN field with the new part.
+  // An agreeing catalogue field associates the MPN with the URL's current part.
   if (urlId && !fieldIds.some(value => value.toUpperCase() === urlId)) return null;
   const values = new Set(findEasyedaFieldValues(["mfr part #", "mpn"]));
   return values.size === 1 ? [...values][0] : null;
@@ -281,15 +287,21 @@ function parseFarnellPathProductData() {
   }
 
   const [, manufacturerSlug, manufacturerPartSlug, sourcePartNumber] = pathnameMatch;
-  return {
-    manufacturerName: normalizeDetectedValue(
-      decodeURIComponent(manufacturerSlug).replace(/-/g, " ").toUpperCase()
-    ),
-    manufacturerPartNumber: normalizeDetectedValue(
-      decodeURIComponent(manufacturerPartSlug).toUpperCase()
-    ),
-    sourcePartNumber: normalizeDetectedValue(decodeURIComponent(sourcePartNumber))
-  };
+  // URL parsing preserves malformed percent escapes. Decode inside the guard
+  // so valid page fields and ECAD metadata remain available as fallbacks.
+  try {
+    return {
+      manufacturerName: normalizeDetectedValue(
+        decodeURIComponent(manufacturerSlug).replace(/-/g, " ").toUpperCase()
+      ),
+      manufacturerPartNumber: normalizeDetectedValue(
+        decodeURIComponent(manufacturerPartSlug).toUpperCase()
+      ),
+      sourcePartNumber: normalizeDetectedValue(decodeURIComponent(sourcePartNumber))
+    };
+  } catch {
+    return null;
+  }
 }
 
 function findFarnellProductData() {
@@ -351,6 +363,8 @@ function extractEventValueFromOnclick(onclickText, key) {
   return normalizeDetectedValue(match?.[1] || "");
 }
 
+// Read the fixed quoted arguments of Mouser's ECAD callback as inert text. The
+// selected fields become encoded query values for the SamacSys entry request.
 function parseLoadPartDivCall(onclickText) {
   const text = String(onclickText || "");
   const match = text.match(

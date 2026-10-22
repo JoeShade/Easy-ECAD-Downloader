@@ -11,6 +11,8 @@ import { convertSymbolToKiCad, exportKiCadSymbolLibrary } from "./kicad_symbol_e
 import { convertObjToWrl } from "./obj_to_wrl.js";
 import { applyPinNameStyle, applyTextStyle, parseSvgPath, sanitizeFields } from "./shared.js";
 
+// Build only requested asset types so a footprint-only upstream payload can be
+// exported independently of the symbol parser, and vice versa.
 function convertEasyedaCadToKicad(cadData, options = {}) {
   const result = {};
 

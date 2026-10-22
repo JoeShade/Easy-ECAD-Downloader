@@ -54,6 +54,7 @@ The current repository does not implement:
 - Firefox relay mode can forward an upstream SamacSys `Authorization` header for ZIP endpoints that rely on HTTP Basic auth instead of cookies alone.
 - The Manifest V3 background is declared for both Chrome and Firefox: Chrome uses `background.service_worker`, while Firefox uses the background-document fallback from `background.scripts`. This combined manifest relies on Firefox 121 or newer.
 - The configurable library download root must remain relative to the browser's Downloads directory.
+- Library roots reject traversal, control characters and Windows-invalid filename punctuation, while retaining nested folders, Unicode and ordinary spaces.
 
 ## 4. Repository architecture
 
@@ -122,6 +123,8 @@ Owns popup UI state and user interaction:
 - gate downloads based on provider support and checkbox selection
 - open the dedicated settings page from the popup settings button
 - send `EXPORT_PART` requests to the service worker
+- keep Download disabled until the pending export receives its worker response, including while selections change
+- wait for saved settings before preview/export requests and keep exports disabled after a storage-read failure
 
 It remains the UI-facing boundary. It does not own fetch, archive extraction, or conversion logic.
 
@@ -137,6 +140,8 @@ Owns persistent settings UI:
 - let users temporarily show or hide typed password and token values without changing stored settings
 - expose Firefox-only helper-service auth and relay URL inside a hidden-by-default advanced Firefox settings menu
 - normalize settings through `src/core/settings.js`
+- suspend form interaction during Save and restore previous local settings if session-secret migration fails; failed restoration reports a partial save requiring reload
+- keep the form inert until its initial local/session snapshot loads; failed reads require reload and preserve saved values, with status messages outside the inert form
 
 It does not request part contexts, previews, exports, or downloads.
 
@@ -183,6 +188,14 @@ Those modules own:
 - KiCad footprint text generation
 - OBJ-to-WRL conversion
 
+KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use a single mapped layer and convert source widths to millimetres. Circular symbol arcs derive their midpoint from the effective SVG radius and the symbol coordinate system's sweep direction.
+
+Symbol PT export accepts absolute M/L/Z with spaces, commas or attached command letters through the shared path parser; previews retain broader native SVG support.
+
+Absolute PT subpaths remain separate; repeated coordinate pairs, adjacent signed numbers and exponent notation follow SVG numeric syntax. Footprint pads preserve explicit non-plated-hole flags and normalize arbitrary whitespace in custom polygon coordinates. OBJ conversion supports default-material faces and negative indices relative to the vertex list at each face, and rejects invalid geometry before WRL output.
+
+Remaining symbol-export fidelity defects include omitted noncircular ellipses and curved/relative PT paths, plus circular approximation of unequal-radii arc records. Native SVG previews accept broader geometry, so preview appearance alone does not establish exported-symbol fidelity. These remain unresolved review findings.
+
 Mouser parts do not flow through this converter for symbol or footprint generation because the upstream ZIP already contains KiCad assets.
 
 ### 4.8 `src/vendor/zip_reader.js`
@@ -192,6 +205,7 @@ Owns small runtime archive extraction support:
 - ZIP central-directory parsing
 - stored-entry reads
 - deflate-entry reads through runtime decompression primitives
+- classic single-disk ZIP header, CRC-32 and expanded-length validation, with a 256 MiB total expansion ceiling
 
 It exists so the service worker can extract the KiCad subtree from the SamacSys ZIP without adding a build step.
 
@@ -257,6 +271,7 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
   - render symbol `PT` records as escaped native SVG paths, preserving source coordinates and draw order alongside pins, rectangles, `PL`/`PG`, circles and arcs
   - keep symbol `PT`/`PL`/`PG` paint local to each shape: hex and basic named solid colors use the dark foreground, white uses the preview background, and absent, `none`, transparent or unsupported paints remain unfilled; existing stroke styling stays monochrome
   - derive datasheet availability from the payload
+  - escape SVG path data and coerce numeric bounds before adding margins
 - Mouser, Farnell, element14, and Newark pages:
   - fetch the SamacSys entry URL
   - follow the part-page redirect and parse the ZIP form and preview token
@@ -275,6 +290,7 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
   - loose-file downloads when `downloadIndividually` is `true`
   - KiCad-style library structure when `downloadIndividually` is `false`
 - Library-mode symbol exports merge into a stored symbol library keyed by the resolved library root.
+- Symbol-library merging scans complete root-symbol blocks, including compact and multi-symbol input, preserving existing definitions and distinguishing nested units from separate symbols.
 - EasyEDA model writes opt into a terminal browser receipt, associated with the exact download ID and requested path. Ordinary artifact writers still return a count of started downloads; `downloadCount` includes acknowledged starts that subsequently fail. The popup's `Download started` status retains that meaning.
 - `src/core/downloads.js` owns browser calls and Blob cleanup; `src/core/download_receipts.js` subscribes before querying the ID, requeries snapshots invalidated by events, and polls every second for missed events. Each model has a 60-second total verification budget, including a start callback bounded to 10 seconds. Missing items, query failures and timeouts produce unverified receipts and request cancellation. Blob URLs are released on terminal state or confirmed cancellation, never merely on timeout.
 - Polling extension APIs keeps the active MV3 request from becoming idle. Runtime messaging returns `true` and defers its reply until model selection finishes. Worker/browser termination abandons the request; no in-memory promise or receipt is treated as durable, and restarted workers do not resume abandoned footprint generation. No permanent receipt state is stored.
@@ -282,13 +298,14 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
 - Path validation requires an absolute browser filename, no traversal/control characters, an unchanged observed model parent, the complete requested library-directory suffix at segment boundaries, and a consistent inferred Downloads root across selected model receipts. Drive, UNC and POSIX paths are handled without embedding them in portable output. Counter suffixes and truncation are retained; no prefix guessing, global filename search or overwrite policy is added.
 - Portable paths retain the existing layout contract: library footprints use `../<libraryName>.3dshapes/<deliveredBasename>`; loose files use `${KIPRJMOD}/<deliveredBasename>` and must be placed together in the project. The Downloads API does not expose the default root independently. A single already-redirected initial path cannot establish that root; individual Save As overrides, changing the root during an export, or subsequent file moves are outside the verified layout. Dependent footprints retain ordinary started-only download semantics; their final destination is not independently verified.
 - Rewriting escapes KiCad strings and changes only the first existing model-path token, preserving transforms, geometry and existing multiple-block behavior. When no selected model has a usable receipt, all stale `(model ...)` blocks are removed.
-- EasyEDA OBJ-to-WRL conversion recenters model geometry in X/Y, bottom-aligns the model in Z, and writes footprint model offsets in KiCad 3D units so the WRL aligns with the generated footprint.
+- EasyEDA OBJ-to-WRL conversion recenters model geometry in X/Y and bottom-aligns the model in Z. Footprint model offsets use millimetres; WRL geometry separately uses KiCad's 2.54 mm per WRL unit convention.
 - Library-mode datasheet exports are written under `<libraryRoot>/datasheets/`.
 
 ### 5.4 Export SamacSys distributor parts
 
 - The service worker fetches the SamacSys entry URL and resolves the part page.
 - In Firefox with a configured relay, the service worker sends those SamacSys HTTP requests through the relay instead of fetching upstream directly.
+- The configured relay URL must be the final endpoint: relay transport rejects redirects to preserve the destination of credential-bearing JSON.
 - In Firefox with a configured relay, the service worker also reads the matching upstream cookies through `chrome.cookies` and forwards them with those proxied requests.
 - For authenticated ZIP flows that use HTTP Basic auth, the service worker resolves upstream SamacSys `Authorization` from the shared precedence and:
   - on Chrome direct requests, retries one ZIP request with that auth after an initial `401`
@@ -303,6 +320,8 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
   - `KiCad/*.kicad_mod`
   - `3D/*.stp` and `3D/*.step`
   - optional `3D/*.wrl`
+- Upstream entry, metadata, preview and ZIP destinations require HTTPS on `componentsearchengine.com` or its subdomains at the standard port, with empty URL credentials. The relay example validates each redirect and clears forwarded credentials on origin changes.
+- ZIP extraction verifies directory/header/data bounds, declared lengths and CRC-32, and limits total expanded bytes to 256 MiB. Encrypted, multi-disk and ZIP64 metadata produce explicit unsupported-format errors.
 - Loose-file mode downloads the extracted files directly into Downloads.
 - Library mode repackages the extracted assets into the current KiCad structure:
   - symbol library merge into `<libraryRoot>/<libraryName>.kicad_sym`
@@ -332,6 +351,7 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
 - If a remember-on-this-device box is checked, the corresponding helper token or SamacSys username/password is stored in `chrome.storage.local` instead.
 - `chrome.storage.local` also stores accumulated symbol library text used for append-style symbol exports in library mode.
 - Stored symbol-library content is keyed by the resolved library root so separate library folders keep separate merged symbol libraries.
+- Read/merge/save/download-start sequences serialize per worker/browser and library key. Storage failures propagate to the export response; download completion retains the receipt semantics described in section 5.3.
 
 ## 7. Error and warning handling
 
@@ -382,6 +402,7 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
 - The private-desktop QA launcher checks the configured Chrome for Testing executable before starting its native helper; a missing browser reports the pinned-browser installation command rather than a downstream protocol failure.
 - QA Python correctness linting uses pinned Ruff through `npm run qa:lint`. A separate `Offline QA harness` CI job installs pinned Python requirements and runs linting plus JS/Python smoke checks on Node 24 and Python 3.10.
 - Browser-run rendering requires schema-2 verified final assets whose current sizes and SHA-256 hashes match the download inventory. Malformed library/model records retain outstanding inspections. Concurrent evidence saves serialize complete snapshots; final download accounting survives popup closure, and cleanup rechecks acquisition files after browser exit.
+- Browser-run assembly rendering also requires every footprint model reference to resolve to a verified inventoried model; unrelated local files leave the assembly blocked and its inspections outstanding.
 - Production source should not be refactored solely to make tests easier; harnesses should adapt to the existing code shape.
 - Local and CI validation share `npm run validate`, which runs ESLint, Vitest, `npm audit --audit-level=moderate`, and `git diff --check`.
 - GitHub Actions runs validation with `npm ci` on Node `20.19.0`, `22.13.0`, and `24.x`.

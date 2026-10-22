@@ -25,6 +25,9 @@ This repository is a compact browser extension that detects supported distributo
 
 ## Comments and explainers
 
+- Start every maintained code-bearing file with a concise responsibility explainer, including tests, Python/PowerShell helpers, HTML/CSS, workflows and executable configuration. Interpreter, runner and language prologues precede the explainer.
+- Explain domain rules, asynchronous ordering, browser lifecycle assumptions and other logic beyond basic variables, loops and conditionals beside the relevant code.
+- State comments affirmatively in terms of actual behavior, prerequisites, preserved properties and collaborating owners.
 - Add comments only when logic or data-shape handling is non-obvious.
 - Keep explainers for conversion rules, browser API boundaries, storage/download behavior, and preview-generation logic.
 - Avoid narration comments and cosmetic rewrites.
@@ -48,7 +51,8 @@ This repository is a compact browser extension that detects supported distributo
 
 ## Documentation expectations
 
-- Update `README.md` when setup, testing, capabilities, or operator-visible behavior changes.
+- Treat the root `README.md` as a fixed asset. Any edit, including content, formatting, links or automated rewrites, requires the user's explicit permission to change that file.
+- General requests for code review, maintenance, fixes or documentation updates do not grant permission to edit `README.md`. Record relevant changes in the other governing documents and flag proposed README updates for explicit approval.
 - Keep `docs/architecture-notes.md` short and implementation-focused.
 - Use `docs/deviations.md` only for live temporary mismatches between code and design.
 - Do not turn tracked docs into backlog, review scratch space, or speculative cleanup lists.
@@ -67,6 +71,7 @@ This repository is a compact browser extension that detects supported distributo
 - Keep test harnesses and developer support code under `tests/` or other clearly developer-only locations.
 - Let the repo-hygiene tests enforce governance files, footer coverage, and documentation discipline.
 - Keep CI, linting, audit, and local validation scripts aligned.
+- Security text scans cover JavaScript modules/configuration, Python, PowerShell and TOML alongside the existing document/data formats.
 
 ## Source footer
 

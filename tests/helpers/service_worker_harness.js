@@ -7,6 +7,8 @@ import { expect, vi } from "vitest";
 
 import { registerServiceWorkerRuntime } from "../../src/service_worker_runtime.js";
 
+// Model storage and download events in memory, with injectable start outcomes.
+// changeDownload updates the queryable item before publishing its Chrome delta.
 export function createServiceWorkerChrome({
   storageState = {},
   sessionStorageState = {},
@@ -154,6 +156,8 @@ export function loadServiceWorker({
   return { urlApi };
 }
 
+// Runtime handlers reply asynchronously after returning true. Retain that
+// return value with the eventual callback so tests cover channel lifetime too.
 export function sendRuntimeMessage(listener, message) {
   return new Promise((resolve) => {
     const handled = listener(message, null, (response) => resolve({ handled, response }));

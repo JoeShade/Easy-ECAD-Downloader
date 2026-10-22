@@ -5,6 +5,9 @@
 
 const MODEL_DOWNLOAD_TIMEOUT_MS = 60000;
 
+// Subscribe before querying so completion during startup stays observable.
+// Serialize queries, invalidate snapshots when events arrive, and bound polling
+// by the caller's remaining deadline. Every result describes this exact ID.
 function waitForDownload(chromeApi, downloadId, requestedFilename, onTerminal, timeoutMs) {
   return new Promise(resolve => {
     let settled = false;
@@ -26,7 +29,7 @@ function waitForDownload(chromeApi, downloadId, requestedFilename, onTerminal, t
     function unverified(error) {
       finish({ state: "unverified", error });
       // Stop abandoned model writes before releasing a Blob URL. A late terminal
-      // event still owns cleanup if cancel itself fails or never calls back.
+      // event retains cleanup ownership until cancellation is acknowledged.
       try {
         chromeApi.downloads.cancel(downloadId, () => {
           if (!chromeApi.runtime.lastError) onTerminal();
@@ -48,7 +51,7 @@ function waitForDownload(chromeApi, downloadId, requestedFilename, onTerminal, t
           if (!item) { unverified("Browser download item is missing."); return; }
           if (!initialFilename && item.filename) initialFilename = item.filename;
           // An event during search invalidates its snapshot, including a stale
-          // terminal result. Requery after subscribing rather than trusting it.
+          // terminal result. Requery after subscribing to obtain a current snapshot.
           if (inspectAgain) { inspectAgain = false; inspect(); return; }
           if (item.state === "complete" || item.state === "interrupted") {
             onTerminal();
@@ -66,12 +69,15 @@ function waitForDownload(chromeApi, downloadId, requestedFilename, onTerminal, t
     chromeApi.downloads.onChanged.addListener(changed);
     timer = setTimeout(() => unverified("Browser download verification timed out."), timeoutMs);
     // API calls also prevent MV3 idle suspension during this bounded request.
-    // No receipt is recovered across worker termination: the export is abandoned.
+    // Worker termination abandons the export and its in-memory receipt state.
     poll = setInterval(inspect, 1000);
     inspect();
   });
 }
 
+// Normalize browser-reported drive, UNC and POSIX paths into parent/name pairs.
+// Segment checks keep parent traversal and Windows alternate streams outside the
+// portable layout used by completedModelFilename.
 function parseAbsoluteDownloadPath(value) {
   if (typeof value !== "string" || [...value].some(char => char.charCodeAt(0) < 32)) return null;
   const path = value.replace(/\\/g, "/");
@@ -87,6 +93,9 @@ function parseAbsoluteDownloadPath(value) {
   return { directory: segments.join("/"), filename, windows };
 }
 
+// A usable receipt proves completion within an unchanged requested directory.
+// An earlier selected model anchors the shared Downloads root; only the observed
+// basename enters KiCad's portable relative reference.
 function completedModelFilename(receipt, anchorReceipt) {
   if (receipt?.state !== "complete" || receipt.exists === false) return "";
   const delivered = parseAbsoluteDownloadPath(receipt.filename);
@@ -102,6 +111,8 @@ function completedModelFilename(receipt, anchorReceipt) {
   // uses the observed unchanged parent and requires co-location with the project.
   if (directory && !compare(delivered.directory).endsWith(compare(`/${directory}`))) return "";
   if (anchorReceipt) {
+    // Removing each requested relative directory yields the inferred Downloads
+    // root. STEP and WRL receipts must agree before one can replace the other.
     const anchor = parseAbsoluteDownloadPath(anchorReceipt.filename);
     if (!anchor || anchor.windows !== delivered.windows) return "";
     const anchorDirectory = anchorReceipt.requestedFilename.replace(/\\/g, "/").split("/").slice(0, -1).join("/");

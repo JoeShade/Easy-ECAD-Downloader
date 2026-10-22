@@ -1,4 +1,4 @@
-"""Native-launch orchestration regressions, runnable without Windows or Chrome."""
+"""Check native-launch orchestration through local process and desktop stubs."""
 import io
 import json
 from pathlib import Path
@@ -13,6 +13,11 @@ from private_desktop import cleanup, configuration, run, watch_control
 
 
 class FakeNative:
+    """Model job termination as a pending exit completed by the next bounded wait.
+
+    This reproduces native shutdown ordering and tests failed assignment and
+    lingering descendants independently of Windows desktop availability.
+    """
     def __init__(self, stalled=False, assign_error=False, busy_job=False):
         self.calls = []
         self.exited = False

@@ -31,7 +31,7 @@ const DEFAULT_SESSION_SETTINGS = {
   samacsysFirefoxPassword: ""
 };
 
-function createSettingsChrome({ sessionStorageState = {} } = {}) {
+function createSettingsChrome({ sessionStorageState = {}, sessionReadError = false } = {}) {
   const state = {
     storageGetCalls: [],
     storageSetCalls: [],
@@ -57,10 +57,12 @@ function createSettingsChrome({ sessionStorageState = {} } = {}) {
       session: {
         get: vi.fn((defaults, callback) => {
           state.sessionGetCalls.push({ defaults, callback });
+          if (sessionReadError) chrome.runtime.lastError = { message: "Storage unavailable." };
           callback({
             ...defaults,
             ...sessionStorage
           });
+          chrome.runtime.lastError = null;
         }),
         set: vi.fn((items, callback) => {
           state.sessionSetCalls.push(items);
@@ -76,7 +78,8 @@ function createSettingsChrome({ sessionStorageState = {} } = {}) {
 
 async function loadSettingsPage({
   userAgent = "Mozilla/5.0 Chrome/135.0.0.0",
-  sessionStorageState = {}
+  sessionStorageState = {},
+  sessionReadError = false
 } = {}) {
   const dom = new JSDOM(readRepoFile("src/settings.html"), {
     url: "https://example.test/settings.html"
@@ -85,7 +88,7 @@ async function loadSettingsPage({
     configurable: true,
     value: userAgent
   });
-  const { chrome, state } = createSettingsChrome({ sessionStorageState });
+  const { chrome, state } = createSettingsChrome({ sessionStorageState, sessionReadError });
   const testApi = {};
   globalThis.chrome = chrome;
   globalThis.window = dom.window;
@@ -126,6 +129,120 @@ async function saveChanges(hooks) {
 }
 
 describe("settings page", () => {
+  it.each(["local", "session"])("preserves saved settings after a failed %s read", async (areaName) => {
+    const { dom, chrome, state, hooks } = await loadSettingsPage({ sessionReadError: areaName === "session" });
+    if (areaName === "local") {
+      chrome.runtime.lastError = { message: "Storage unavailable." };
+    }
+    state.storageGetCalls[0].callback(DEFAULT_STORED_SETTINGS);
+    chrome.runtime.lastError = null;
+    await flushAsyncWork();
+    await flushAsyncWork();
+    expect(hooks.elements.statusEl.textContent).toContain("Failed to load settings");
+    expect(hooks.elements.settingsForm.hasAttribute("inert")).toBe(true);
+    dispatchChange(dom, hooks.elements.downloadIndividuallyEl);
+    await hooks.saveSettings();
+    expect(state.storageSetCalls).toHaveLength(0);
+    expect(state.sessionSetCalls).toHaveLength(0);
+  });
+
+  it("preserves stored settings while the initial read is pending", async () => {
+    const { dom, state, hooks } = await loadSettingsPage();
+    expect(hooks.elements.settingsForm.hasAttribute("inert")).toBe(true);
+    hooks.elements.downloadIndividuallyEl.checked = true;
+    dispatchChange(dom, hooks.elements.downloadIndividuallyEl);
+    await hooks.saveSettings();
+    expect(state.storageSetCalls).toHaveLength(0);
+    expect(hooks.elements.saveSettingsEl.disabled).toBe(true);
+
+    await applyStoredSettings(state, {
+      ...DEFAULT_STORED_SETTINGS,
+      libraryDownloadRoot: "MyLibrary",
+      rememberSamacsysCredentials: true,
+      samacsysFirefoxUsername: "user@example.test",
+      samacsysFirefoxPassword: "saved-password"
+    });
+    expect(hooks.elements.settingsForm.hasAttribute("inert")).toBe(false);
+    expect(hooks.elements.libraryDownloadRootEl.value).toBe("MyLibrary");
+    dispatchChange(dom, hooks.elements.downloadIndividuallyEl);
+    await hooks.saveSettings();
+    expect(state.storageSetCalls[0].samacsysFirefoxPassword).toBe("saved-password");
+  });
+
+  it("serializes saves and protects form edits until storage finishes", async () => {
+    const { dom, chrome, state, hooks } = await loadSettingsPage();
+    await applyStoredSettings(state);
+    let finishLocalSave;
+    chrome.storage.local.set.mockImplementation((items, callback) => {
+      state.storageSetCalls.push(items);
+      finishLocalSave = callback;
+    });
+    hooks.elements.downloadIndividuallyEl.checked = true;
+    dispatchChange(dom, hooks.elements.downloadIndividuallyEl);
+    const saving = hooks.saveSettings();
+    expect(hooks.elements.settingsForm.hasAttribute("inert")).toBe(true);
+    expect(hooks.elements.saveSettingsEl.disabled).toBe(true);
+    await hooks.saveSettings();
+    expect(state.storageSetCalls).toHaveLength(1);
+    finishLocalSave();
+    await saving;
+    expect(hooks.elements.settingsForm.hasAttribute("inert")).toBe(false);
+    expect(hooks.elements.statusEl.textContent).toBe("Settings saved.");
+  });
+
+  it("restores form interaction after a storage failure", async () => {
+    const { dom, chrome, state, hooks } = await loadSettingsPage();
+    await applyStoredSettings(state);
+    chrome.storage.local.set.mockImplementation((_items, callback) => {
+      chrome.runtime.lastError = { message: "Storage full." };
+      callback();
+      chrome.runtime.lastError = null;
+    });
+    dispatchChange(dom, hooks.elements.downloadIndividuallyEl);
+    await hooks.saveSettings();
+    expect(hooks.elements.settingsForm.hasAttribute("inert")).toBe(false);
+    expect(hooks.elements.saveSettingsEl.disabled).toBe(false);
+    expect(hooks.elements.statusEl.textContent).toBe("Storage full.");
+  });
+
+  it("restores remembered credentials if their session migration fails", async () => {
+    const { dom, chrome, state, hooks } = await loadSettingsPage();
+    const previous = { ...DEFAULT_STORED_SETTINGS, rememberSamacsysCredentials: true,
+      samacsysFirefoxUsername: "user@example.test", samacsysFirefoxPassword: "saved-password" };
+    await applyStoredSettings(state, previous);
+    chrome.storage.session.set.mockImplementation((_items, callback) => {
+      chrome.runtime.lastError = { message: "Session storage failed." };
+      callback();
+      chrome.runtime.lastError = null;
+    });
+    hooks.elements.rememberSamacsysCredentialsEl.checked = false;
+    dispatchChange(dom, hooks.elements.rememberSamacsysCredentialsEl);
+    await hooks.saveSettings();
+    expect(state.storageSetCalls.at(-1)).toEqual(previous);
+    expect(hooks.elements.statusEl.textContent).toBe("Session storage failed.");
+    expect(hooks.elements.saveSettingsEl.disabled).toBe(false);
+  });
+
+  it("reports a partial save when restoring local settings also fails", async () => {
+    const { dom, chrome, state, hooks } = await loadSettingsPage();
+    await applyStoredSettings(state);
+    chrome.storage.local.set.mockImplementationOnce((_items, callback) => callback())
+      .mockImplementationOnce((_items, callback) => {
+        chrome.runtime.lastError = { message: "Local storage unavailable." };
+        callback();
+        chrome.runtime.lastError = null;
+      });
+    chrome.storage.session.set.mockImplementation((_items, callback) => {
+      chrome.runtime.lastError = { message: "Session storage unavailable." };
+      callback();
+      chrome.runtime.lastError = null;
+    });
+    dispatchChange(dom, hooks.elements.downloadIndividuallyEl);
+    await hooks.saveSettings();
+    expect(hooks.elements.statusEl.textContent).toContain("partly saved");
+    expect(hooks.elements.statusEl.textContent).toContain("Reload");
+    expect(hooks.elements.settingsForm.hasAttribute("inert")).toBe(false);
+  });
   it("keeps hidden runtime-specific sections visually hidden", () => {
     const settingsPageCss = normalizeNewlines(
       readRepoFile("src/settings_page.css")

@@ -17,6 +17,11 @@ from private_desktop_win32 import WindowsDesktop
 
 
 def configuration(arguments):
+    """Require one owned temporary profile, an absolute Chrome binary and CDP pipes.
+
+    The receipt's parent is also the required Chrome profile. These checks bind
+    later cleanup authorization to the temporary tree created by browser.js.
+    """
     if len(arguments) < 4:
         raise ValueError("Private desktop name, status path and Chrome command are required")
     name, status, *command = arguments
@@ -39,12 +44,14 @@ def configuration(arguments):
 
 
 def write_status(filename, value):
+    """Publish each launcher transition atomically for the Node cleanup observer."""
     temporary = filename.with_suffix(".tmp")
     temporary.write_text(json.dumps(value), encoding="utf-8")
     os.replace(temporary, filename)
 
 
 def watch_control(stream, stop):
+    """Treat an explicit stop line or parent-pipe EOF as owned-browser shutdown."""
     for line in stream:
         if line.strip() == "stop":
             break
@@ -52,9 +59,16 @@ def watch_control(stream, stop):
 
 
 def cleanup(native, process, job, desktop, assigned=False):
+    """Stop owned processes, close native handles and retain every cleanup failure.
+
+    A suspended process whose job assignment failed needs direct termination.
+    Assigned processes use job termination, followed by bounded exit observation
+    for both Chrome and its descendants before the desktop is released.
+    """
     errors = []
 
     def attempt(action):
+        """Keep later cleanup steps running while accumulating their failure reasons."""
         try:
             return action()
         except Exception as error:
@@ -63,8 +77,8 @@ def cleanup(native, process, job, desktop, assigned=False):
 
     if job:
         attempt(lambda: native.terminate_job(job))
-    # A job termination is asynchronous. Wait for an assigned process instead
-    # of racing a second TerminateProcess call against its pending exit.
+    # Job termination completes asynchronously. Observe the assigned process's
+    # pending exit before releasing its handle and the process-job handle.
     if process and not assigned and not attempt(lambda: native.wait(process, 0)):
         attempt(lambda: native.terminate_process(process))
     process_stopped = not process or attempt(lambda: native.wait(process, 5000))
@@ -94,6 +108,11 @@ def cleanup(native, process, job, desktop, assigned=False):
 
 
 def run(name, status, command, native, control=sys.stdin):
+    """Suspend Chrome until job ownership is established, then supervise its lifetime.
+
+    The running receipt precedes thread resume, so Node can verify isolation as
+    soon as CDP connects. The final receipt includes cleanup results on every exit.
+    """
     process = job = desktop = None
     assigned = False
     state = {"name": name, "phase": "starting", "launcherPid": os.getpid(),

@@ -11,16 +11,20 @@ import { convertEasyedaCadToKicad } from "../src/kicad_converter.js";
 import { createCadData } from "./helpers/fixtures.js";
 import { createServiceWorkerChrome, loadServiceWorker, sendRuntimeMessage } from "./helpers/service_worker_harness.js";
 
+// Parse as XML so malformed SVG attributes fail before pixel-level comparisons.
 function svgDocument(svg) {
   const doc = new window.DOMParser().parseFromString(svg, "image/svg+xml");
   expect(doc.querySelector("parsererror")).toBeNull();
   return doc;
 }
 
+// Exercise paint and geometry with the same compact payload shape as the source API.
 function preview(shapes, bbox = { x: 0, y: 0, width: 40, height: 30 }) {
   return svgDocument(buildSymbolPreviewSvg({ dataStr: { BBox: bbox, shape: shapes } }));
 }
 
+// Match the popup's small display size so a primitive must survive real rendering
+// to contribute pixels; raster output establishes visibility at that scale.
 function raster(doc) {
   doc.documentElement.setAttribute("width", "123");
   doc.documentElement.setAttribute("height", "90");
@@ -56,6 +60,8 @@ describe("EasyEDA symbol previews", () => {
       control.querySelector("g").children[graphic.index].remove();
       const omitted = raster(control);
       let changedPixels = 0;
+      // Alpha changes identify pixels contributed by this shape while allowing
+      // minor antialiasing variation at the edge of another overlapping primitive.
       for (let i = 3; i < complete.length; i += 4) {
         if (Math.abs(complete[i] - omitted[i]) > 64) changedPixels++;
       }

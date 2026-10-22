@@ -1,15 +1,17 @@
 /*
- * Exercise evidence persistence and repository output boundaries using temporary
- * files. Concurrent saves reproduce asynchronous diagnostic and stage updates.
+ * Check bounded CLI budgets, evidence persistence and repository output boundaries.
+ * Temporary files reproduce concurrent diagnostic and stage updates.
  */
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { atomicJson, createRun, repoRoot } from "./common.js";
+import { atomicJson, createRun, options, repoRoot } from "./common.js";
 
 const temporary = [];
+const originalArguments = process.argv;
 afterEach(async () => {
+  process.argv = originalArguments;
   vi.restoreAllMocks();
   await Promise.all(temporary.splice(0).map(dir => fs.rm(dir, { recursive: true, force: true })));
 });
@@ -20,7 +22,24 @@ async function tempDir() {
   return dir;
 }
 
-describe("harness persistence", () => {
+describe("harness options and persistence", () => {
+  it.each(["2147483648", "9007199254740992", "1e100"])("rejects timer budgets that Node would clamp: %s", timeout => {
+    process.argv = [process.execPath, "qa-run.js", "--timeout", timeout];
+    expect(() => options()).toThrow("Invalid --timeout");
+  });
+
+  it("accepts the largest supported timer budget", () => {
+    process.argv = [process.execPath, "qa-run.js", "--timeout", "2147483647"];
+    expect(options().timeout).toBe(2147483647);
+  });
+
+  it("keeps the enclosing rendering budget within Node's timer limit", () => {
+    process.argv = [process.execPath, "qa-run.js", "--render-timeout", "71582789"];
+    expect(() => options()).toThrow("Invalid --render-timeout");
+    process.argv = [process.execPath, "qa-run.js", "--render-timeout", "71582788"];
+    expect(options()["render-timeout"]).toBe(71582788);
+  });
+
   it("serializes simultaneous snapshots and leaves the latest complete value", async () => {
     const dir = await tempDir(), filename = path.join(dir, "result.json");
     const state = { sequence: 0 };

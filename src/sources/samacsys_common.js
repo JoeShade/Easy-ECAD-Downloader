@@ -5,6 +5,10 @@
  * KiCad asset rewriting for the pre-generated upstream SamacSys bundles.
  */
 
+import {
+  rewriteFirstKicadFootprintModelPath,
+  stripKicadFootprintModels
+} from "../core/kicad_footprint_models.js";
 import { makeBase64DataUrl } from "../core/preview_data.js";
 import { isFirefoxRuntime } from "../core/part_context.js";
 import { readZipEntries } from "../vendor/zip_reader.js";
@@ -12,10 +16,23 @@ import { readZipEntries } from "../vendor/zip_reader.js";
 const DEFAULT_SAMACSYS_BASE_URL = "https://ms.componentsearchengine.com";
 const DEFAULT_SAMACSYS_PROXY_REQUEST_URL_HEADER = "x-upstream-url";
 
+// Entry URLs and page form actions cross the upstream authentication boundary.
+// Validate their parsed origin before cookies or configured credentials are read.
+function ensureSamacsysUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" && !url.username && !url.password && !url.port &&
+        /(^|\.)componentsearchengine\.com$/i.test(url.hostname)) {
+      return url.toString();
+    }
+  } catch { /* Invalid URLs share the destination-validation error below. */ }
+  throw new Error("SamacSys request URL must use HTTPS on componentsearchengine.com.");
+}
+
 function getSamacsysBaseUrl(partContext, fallbackUrl = DEFAULT_SAMACSYS_BASE_URL) {
   const configuredBaseUrl = partContext?.lookup?.samacsysBaseUrl;
   if (configuredBaseUrl) {
-    return configuredBaseUrl;
+    return new URL(ensureSamacsysUrl(configuredBaseUrl)).origin;
   }
   try {
     return new URL(partContext?.lookup?.entryUrl || fallbackUrl).origin;
@@ -28,7 +45,7 @@ function ensureAbsoluteUrl(url, origin = DEFAULT_SAMACSYS_BASE_URL) {
   if (!url) {
     return "";
   }
-  return new URL(url, origin).toString();
+  return ensureSamacsysUrl(new URL(url, origin).toString());
 }
 
 function encodeProxyRequestBody(body) {
@@ -101,6 +118,8 @@ async function getCookieHeader(chromeApi, requestUrl) {
   });
 }
 
+// The relay's outer response URL identifies the helper. Its dedicated header
+// identifies the resolved upstream page used for part-ID and form parsing.
 function wrapProxyResponse(response, requestUrl) {
   return {
     ok: response.ok,
@@ -136,6 +155,9 @@ function buildRetryHeaders(headers, authorizationHeader) {
   };
 }
 
+// Direct requests use the browser's upstream session. Firefox relays receive
+// matching cookies and upstream auth inside JSON; the relay's own token remains
+// on the outer POST header, keeping both authentication purposes distinct.
 function createSamacsysFetchImpl(
   fetchImpl,
   {
@@ -147,11 +169,11 @@ function createSamacsysFetchImpl(
   } = {}
 ) {
   if (!isFirefoxRuntime(userAgent) || !proxyBaseUrl) {
-    return fetchImpl;
+    return (url, options) => fetchImpl(ensureSamacsysUrl(url), options);
   }
 
   return async (url, options = {}) => {
-    const requestUrl = String(url);
+    const requestUrl = ensureSamacsysUrl(url);
     const forwardHeaders = normalizeForwardHeaders(options.headers);
     const upstreamAuthorizationHeader =
       resolveUpstreamAuthorizationHeader(authorizationHeader);
@@ -182,6 +204,9 @@ function createSamacsysFetchImpl(
       }
       response = await fetchImpl(proxyBaseUrl, {
         method: "POST",
+        // Upstream cookies and auth live in JSON. Bind that body to the exact
+        // configured relay endpoint by treating transport redirects as errors.
+        redirect: "error",
         headers: relayHeaders,
         body: JSON.stringify({
           url: requestUrl,
@@ -210,6 +235,8 @@ function extractTagAttributeValue(tagText, attributeName) {
   return match ? match[1] : "";
 }
 
+// Carry SamacSys's named form inputs forward using their upstream field names.
+// The worker only needs this known form's action, method and input values.
 function parseFormById(html, formId) {
   const match = String(html || "").match(
     new RegExp(
@@ -256,7 +283,11 @@ function buildSamacsysPreviewPageUrl(baseUrl, partId, partnerName = "mouser") {
   return `${baseUrl}/preview_newDesign.php?o3=0&partID=${encodeURIComponent(partId)}&ev=0&fmt=zip&pna=${encodeURIComponent(partnerName)}`;
 }
 
+// Bind the preview token and named ZIP inputs to an approved upstream action.
+// The final page URL supplies the part ID when the form omits that hidden field.
 function parseSamacsysPageMetadata(html, finalUrl, baseUrl = DEFAULT_SAMACSYS_BASE_URL) {
+  ensureSamacsysUrl(finalUrl);
+  ensureSamacsysUrl(baseUrl);
   const zipForm = parseFormById(html, "zipForm");
   const partId = parseSamacsysPartId(finalUrl, zipForm);
   const token = zipForm?.inputs?.tok || "";
@@ -286,12 +317,16 @@ function parseSamacsysPageMetadata(html, finalUrl, baseUrl = DEFAULT_SAMACSYS_BA
   };
 }
 
+// The distributor entry resolves a stable part ID; the second preview page
+// supplies its current token and ZIP form, which can differ from the entry HTML.
 async function fetchSamacsysPageMetadata(fetchImpl, partContext) {
   const entryUrl = partContext?.lookup?.entryUrl;
   if (!entryUrl) {
     throw new Error("SamacSys entry URL was not found on the page.");
   }
+  ensureSamacsysUrl(entryUrl);
   const baseUrl = getSamacsysBaseUrl(partContext, entryUrl);
+  ensureSamacsysUrl(baseUrl);
   const partnerName = partContext?.lookup?.partnerName || "mouser";
 
   const response = await fetchImpl(entryUrl, {
@@ -305,7 +340,7 @@ async function fetchSamacsysPageMetadata(fetchImpl, partContext) {
   }
 
   const entryHtml = await response.text();
-  const entryFinalUrl = response.url || entryUrl;
+  const entryFinalUrl = ensureSamacsysUrl(response.url || entryUrl);
   const entryZipForm = parseFormById(entryHtml, "zipForm");
   const partId = parseSamacsysPartId(entryFinalUrl, entryZipForm);
   if (!partId) {
@@ -419,6 +454,8 @@ function decodeZipText(bytes) {
   return new TextDecoder().decode(bytes);
 }
 
+// Bundles can nest KiCad/ and 3D/ beneath a part folder. Select supported member
+// types from either layout, then flatten filenames into the export directories.
 async function extractSamacsysKiCadAssets(zipBuffer, readZipEntriesImpl = readZipEntries) {
   const entries = await readZipEntriesImpl(zipBuffer);
   const symbolEntries = entries.filter(
@@ -483,9 +520,12 @@ function rewriteSamacsysSymbolFootprintReference(symbolLibraryText, footprintNam
   if (!footprintName || !libraryName) {
     return symbolLibraryText;
   }
+  const reference = `${libraryName}:${footprintName}`.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  // A callback keeps dollar signs literal while the escaped value stays one
+  // KiCad string token inside the existing property block.
   return String(symbolLibraryText).replace(
-    /(\(property "Footprint" ")([^"]*)(")/,
-    `$1${libraryName}:${footprintName}$3`
+    /(\(property "Footprint" ")((?:\\.|[^"\\])*)(")/,
+    (_match, prefix, _oldReference, suffix) => `${prefix}${reference}${suffix}`
   );
 }
 
@@ -493,58 +533,18 @@ function rewriteSamacsysFootprintModelPath(footprintText, modelFilename, library
   if (!modelFilename || !libraryName) {
     return footprintText;
   }
-  return String(footprintText).replace(
-    /(\(model\s+)("?)([^"\s)]+)("?)/,
-    `$1$2../${libraryName}.3dshapes/${modelFilename}$4`
+  return rewriteFirstKicadFootprintModelPath(
+    footprintText, `../${libraryName}.3dshapes/${modelFilename}`
   );
-}
-
-function stripKicadFootprintModels(footprintText) {
-  const text = String(footprintText || "");
-  let result = "";
-  let cursor = 0;
-
-  while (cursor < text.length) {
-    const modelStart = text.indexOf("(model", cursor);
-    if (modelStart === -1) {
-      result += text.slice(cursor);
-      break;
-    }
-
-    let blockStart = modelStart;
-    while (blockStart > cursor && /[ \t]/.test(text[blockStart - 1])) {
-      blockStart -= 1;
-    }
-    if (blockStart > cursor && /[\r\n]/.test(text[blockStart - 1])) {
-      blockStart -= 1;
-    }
-
-    result += text.slice(cursor, blockStart);
-
-    let depth = 0;
-    let blockEnd = modelStart;
-    for (; blockEnd < text.length; blockEnd += 1) {
-      if (text[blockEnd] === "(") {
-        depth += 1;
-      } else if (text[blockEnd] === ")") {
-        depth -= 1;
-        if (depth === 0) {
-          blockEnd += 1;
-          break;
-        }
-      }
-    }
-
-    cursor = blockEnd;
-  }
-
-  return result.replace(/\n{3,}/g, "\n\n");
 }
 
 function getSamacsysAuthenticationErrorMessage() {
   return "Mouser/SamacSys download requires you to be signed in before CAD files can be downloaded.";
 }
 
+// Reproduce the upstream GET/POST form submission. Direct Chrome requests can
+// retry one authentication challenge with configured Basic auth; the adapter
+// supplies an empty retry header when Firefox's relay owns authentication.
 async function fetchSamacsysZipArchive(
   fetchImpl,
   metadata,
@@ -552,8 +552,11 @@ async function fetchSamacsysZipArchive(
 ) {
   const body = buildQueryString(metadata.zipFormInputs || {});
   const method = String(metadata.zipMethod || "GET").toUpperCase();
-  const requestUrl =
-    method === "GET" && body ? `${metadata.zipActionUrl}?${body}` : metadata.zipActionUrl;
+  const actionUrl = new URL(ensureSamacsysUrl(metadata.zipActionUrl));
+  if (method === "GET" && body) {
+    actionUrl.search += `${actionUrl.search ? "&" : ""}${body}`;
+  }
+  const requestUrl = actionUrl.toString();
   const requestOptions = {
     method,
     credentials: "include"

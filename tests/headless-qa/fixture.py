@@ -17,6 +17,8 @@ class UnsupportedGeometry(ValueError):
 def parse_sexpr(text):
     """Read nested KiCad expressions, keeping quoted parentheses inside string atoms."""
     tokens = re.findall(r'"(?:\\.|[^"\\])*"|\(|\)|[^\s()]+', text)
+    # Each opening parenthesis pushes one list; closing it restores the parent.
+    # Quoted tokens are decoded together so their parentheses remain string data.
     stack, root = [], None
     for token in tokens:
         if token == "(":
@@ -121,6 +123,8 @@ def normalize_legacy_arcs(text):
             finish = initial
         fields = {"start": ("start", initial), "end": ("mid", mid), "angle": ("end", finish)}
         normalized = original
+        # Replace from right to left so earlier source positions remain valid
+        # as normalized coordinate strings change the expression's length.
         for child_name, child_start, child_end in reversed(child_spans(original)):
             if child_name in fields:
                 token, xy = fields[child_name]
@@ -233,6 +237,8 @@ primitives raise a harness limitation; malformed coordinates raise an input erro
                 raise UnsupportedGeometry("Unsupported custom pad geometry")
             half_x = (abs(math.cos(rotation))*width + abs(math.sin(rotation))*height)/2
             half_y = (abs(math.sin(rotation))*width + abs(math.cos(rotation))*height)/2
+            # Project the rotated rectangle onto each axis, then translate those
+            # half-extents around the pad center to enclose all four corners.
             points.extend(((x-half_x, y-half_y), (x+half_x, y+half_y)))
         for child in value[1:]:
             visit(child)

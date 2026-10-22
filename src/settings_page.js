@@ -78,6 +78,8 @@ const PASSWORD_TOGGLE_LABELS = {
 
 let currentSettings = { ...DEFAULT_SETTINGS };
 let hasUnsavedChanges = false;
+let isSaving = false;
+let isLoading = true;
 let pendingClearHelperSecret = false;
 let pendingClearSamacsysCredentials = false;
 
@@ -92,8 +94,8 @@ function hasSecretValue(value) {
 }
 
 function updateActionState() {
-  saveSettingsEl.disabled = !hasUnsavedChanges;
-  discardSettingsEl.disabled = !hasUnsavedChanges;
+  saveSettingsEl.disabled = isLoading || isSaving || !hasUnsavedChanges;
+  discardSettingsEl.disabled = isLoading || isSaving || !hasUnsavedChanges;
 }
 
 function markDirty(message = "Unsaved changes.") {
@@ -355,7 +357,13 @@ function needsSessionStorage(settings) {
   );
 }
 
+// Preserve blank secret inputs by merging them with the loaded values. Local
+// remember flags and session secrets are written in order, with local rollback
+// restoring the previous source of truth when the second write fails.
 async function saveSettings() {
+  if (isLoading || isSaving) {
+    return;
+  }
   const settings = readSettingsFromUi();
   const {
     libraryDownloadRootIsValid,
@@ -363,6 +371,13 @@ async function saveSettings() {
     ...normalizedSettings
   } = settings;
 
+  // Inert forms suspend pointer and keyboard edits while the two storage areas
+  // are updated. The guard also serializes programmatic submit events.
+  isSaving = true;
+  settingsForm.setAttribute("inert", "");
+  updateActionState();
+  const previousLocalSettings = buildLocalSettings(currentSettings);
+  let localSettingsWritten = false;
   try {
     const sessionStorageArea = getSessionStorageArea();
     if (needsSessionStorage(normalizedSettings) && !sessionStorageArea) {
@@ -377,6 +392,7 @@ async function saveSettings() {
       chromeApi.storage.local,
       buildLocalSettings(normalizedSettings)
     );
+    localSettingsWritten = true;
     if (sessionStorageArea) {
       await setStorageArea(
         sessionStorageArea,
@@ -393,7 +409,7 @@ async function saveSettings() {
     const warnings = [];
     if (!libraryDownloadRootIsValid) {
       warnings.push(
-        "The folder must be inside Downloads. Reset to the default folder."
+        "The folder must be inside Downloads and use valid filename characters. Reset to the default folder."
       );
     }
     if (!samacsysFirefoxProxyBaseUrlIsValid) {
@@ -406,12 +422,38 @@ async function saveSettings() {
       warnings.length ? "warning" : "default"
     );
   } catch (error) {
+    // Local remember flags choose which area readers use. Restore that snapshot
+    // if session migration fails so previously saved credentials remain usable.
+    if (localSettingsWritten) {
+      try {
+        await setStorageArea(chromeApi.storage.local, previousLocalSettings);
+      } catch {
+        setStatus("Settings were partly saved. Reload this page to check saved values before retrying.", "error");
+        return;
+      }
+    }
     setStatus(error?.message || "Failed to save settings.", "error");
+  } finally {
+    isSaving = false;
+    settingsForm.removeAttribute("inert");
+    updateActionState();
   }
 }
 
-function loadSettings() {
-  return loadStoredSettings(chromeApi).then(applySettingsToUi);
+// Keep the form locked until both storage areas have supplied the snapshot used
+// by Save. A failed read requires a reload so existing secrets stay preserved.
+async function loadSettings() {
+  settingsForm.setAttribute("inert", "");
+  setStatus("Loading settings...");
+  try {
+    const settings = await loadStoredSettings(chromeApi);
+    isLoading = false;
+    applySettingsToUi(settings);
+    settingsForm.removeAttribute("inert");
+    setStatus("");
+  } catch {
+    setStatus("Failed to load settings. Reload this page to try again.", "error");
+  }
 }
 
 function resetLibraryDownloadRoot() {

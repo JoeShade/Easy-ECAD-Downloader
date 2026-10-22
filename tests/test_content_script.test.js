@@ -1,7 +1,7 @@
 /*
  * These tests cover provider-aware DOM detection in the content script. They
  * run the script in jsdom with mocked chrome messaging so page parsing can be
- * exercised without a browser extension.
+ * exercised in an isolated DOM with controlled message listeners.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +10,16 @@ import cases from "./fixtures/issue_13.json";
 import { loadContentScript } from "./helpers/content_script_harness.js";
 
 describe("content script", () => {
+  it("uses SamacSys link metadata when a fallback product path has malformed encoding", () => {
+    const page = loadContentScript(`
+      <dl><dt>Order Code</dt><dd>123456</dd></dl>
+      <a href="https://farnell.componentsearchengine.com/entry_u_newDesign.php?mna=ACME&amp;mpn=PART-1&amp;pna=farnell">ECAD</a>
+    `, { url: "https://uk.farnell.com/acme/%E0%A4%A/part/dp/123456" });
+    expect(page.requestContext()).toMatchObject({
+      provider: "farnellSamacsys", sourcePartNumber: "123456", manufacturerPartNumber: "PART-1"
+    });
+    page.dom.window.close();
+  });
   it("extracts EasyEDA identifiers from supported page text", () => {
     const { hooks } = loadContentScript("<div>ignored</div>");
 
@@ -501,7 +511,8 @@ describe("content script", () => {
   });
 });
 
-// Issue #13 values are report data; these fixtures are not live-browser evidence.
+// Issue #13 report values provide deterministic fixtures; live-browser acceptance
+// requires separate acquisition evidence.
 describe("EasyEDA current-product identity", () => {
   it.each(cases)("resolves $case from URL-only, multiple-pair and wrapped-pair evidence", row => {
     for (const source of ["url", "pairs", "wrapped"]) {

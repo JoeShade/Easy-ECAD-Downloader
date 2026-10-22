@@ -1,5 +1,5 @@
 # A visible credential console is intentional. All browser QA windows continue
-# to use their private desktop. Never redirect the credential console's streams.
+# to use their private desktop. The credential console owns its interactive streams.
 param(
     [Parameter(Mandatory = $true)][string]$NodePath,
     [Parameter(Mandatory = $true)][string]$AuthScript,

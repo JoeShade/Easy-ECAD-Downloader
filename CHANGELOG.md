@@ -4,7 +4,7 @@ Notable changes are recorded here in reverse chronological order.
 
 ## Unreleased
 
-This section summarizes the current `Development` branch compared with `main` as reviewed on 2026-05-08.
+This section summarizes the current `Development` branch and working-tree changes compared with `main`, reviewed on 2026-10-22.
 
 ### Added
 
@@ -40,6 +40,22 @@ This section summarizes the current `Development` branch compared with `main` as
 
 ### Fixed
 
+- Preserved non-plated footprint holes, normalized custom-pad whitespace, kept independent symbol path subpaths separate, and accepted SVG signed/exponent numeric syntax.
+- Corrected footprint model offsets to millimetres, independently verified with KiCad 10; WRL vertex scaling remains separate. Preserved OBJ faces with default materials and relative indices, and rejected malformed geometry.
+- Kept settings saves and popup requests waiting for the initial stored snapshot, surfaced storage-read failures, and kept reload guidance accessible while the settings form is inert.
+- Rejected control characters and portable-filename-invalid punctuation in library roots before browser downloads can rename or reject the requested layout.
+- Merged compact and multi-symbol KiCad libraries structurally, preserving existing definitions and distinguishing nested units from root-symbol names.
+- Rejected redirects from the configured Firefox relay endpoint to protect upstream credentials carried in its JSON body.
+- Blocked browser QA assembly rendering when any referenced model is absent from the verified download inventory, retaining outstanding inspection evidence.
+- Serialized pending popup exports and settings saves; restored remembered settings after failed session-secret migration and retained a clear partial-save error if restoration fails.
+- Restricted authenticated SamacSys requests and relay redirect hops to approved HTTPS destinations; corrected the relay guide's secret name and Bearer-token setup.
+- Serialized shared symbol-library updates, surfaced storage failures, preserved ZIP form queries and used one string-aware footprint model editor across providers.
+- Validated ZIP structure, checksums and expanded sizes with a 256 MiB ceiling; malformed and unsupported archives now fail before CAD export.
+- Escaped KiCad strings and SVG paths, normalized library identifiers, corrected footprint graphic layers/rectangle units, symbol polyline closure and circular-arc sweep/radius handling, and bounded large OBJ conversion with valid default materials.
+- Restored compact and comma-separated absolute M/L/Z symbol paths through the shared parser; removed unused popup settings selectors after verifying the separate options-page stylesheet owns those controls.
+- Rejected overflowing QA timer budgets, aligned Python secret redaction and preserved primary private-desktop startup errors during cleanup.
+- Expanded explainer coverage to executable tooling and security scans to Python, PowerShell and module/configuration text.
+- Extended hygiene coverage to local matrix scripts and additional workflow files, explained matrix publication/locking, and allowed live deviations with explicit requirements, observed behavior and closure conditions.
 - Hardened QA evidence persistence, failure exits, popup-loss accounting, post-browser download cleanup, malformed CAD inspection records, and renderer inventory verification; added regression coverage and Python lint/smoke checks in CI.
 - Fixed issue #16's missing EasyEDA symbol preview paths, restoring captured diode bodies and LED arrowheads while preserving filled and hollow `PT`/`PL`/`PG` graphics without changing CAD exports.
 - Fixed issue #17's EasyEDA model-selection boundary: wait for ID-scoped browser completion, reference delivered STEP/WRL basenames after renames, fall back from failed WRL downloads, and omit references when model completion or the requested directory layout cannot be verified. Added bounded lifecycle handling and regression coverage for all eight reported names.
@@ -49,7 +65,7 @@ This section summarizes the current `Development` branch compared with `main` as
 - Treated WRL-only SamacSys ZIP archives as valid 3D model exports.
 - Preserved SamacSys library footprint model references when an archive provides only a WRL model.
 - Replaced repeated KiCad footprint template fields so generated vias and text sizes no longer leave raw placeholders.
-- Corrected EasyEDA WRL placement by centering OBJ geometry, bottom-aligning Z, and writing KiCad 3D-unit offsets.
+- Corrected EasyEDA WRL placement by centering OBJ geometry and bottom-aligning Z; footprint model offsets use millimetres independently of WRL vertex units.
 - Rendered EasyEDA footprint previews for oval pads and solid-region geometry used by several LCSC footprints.
 - Detected JLCPCB manufacturer part numbers when product pages use compact labels such as `MFR.Part #`.
 - Improved provider-aware page detection for JLCPCB, LCSC, Mouser, and Farnell product pages.

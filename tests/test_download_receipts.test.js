@@ -7,6 +7,8 @@ import { createDownloadApi } from "../src/core/downloads.js";
 import { completedModelFilename } from "../src/core/download_receipts.js";
 import { createServiceWorkerChrome } from "./helpers/service_worker_harness.js";
 
+// Hold every model in progress until the test publishes its terminal state.
+// Blob mode also exposes URL revocation so tests can inspect cleanup ordering.
 function setup(blob = false) {
   const h = createServiceWorkerChrome({ downloadBehavior: () => ({ autoComplete: false }) });
   const urlApi = blob ? { createObjectURL: vi.fn(() => "blob:test"), revokeObjectURL: vi.fn() } : {};

@@ -9,6 +9,8 @@ import { randomUUID } from "node:crypto";
 import puppeteer from "puppeteer";
 import { command } from "./common.js";
 
+// Bind cleanup permission to the unique desktop name and, after startup, the
+// exact native process IDs. A missing or incomplete receipt retains recovery data.
 function desktopLifecycle(name, filename) {
   return {
     name, filename, process: null, info: null,
@@ -27,7 +29,7 @@ function desktopLifecycle(name, filename) {
 }
 
 // The helper receives only public launch arguments. Credential entry stays in
-// the original Node terminal; Chrome never receives a listening debugging port.
+// the original Node terminal; Chrome communicates through inherited private pipes.
 export async function launchPrivateDesktopBrowser({ profile, timeout, controlledSignals = false, python = "python" }) {
   if (process.platform !== "win32") throw new Error("Private-desktop browser QA requires Windows");
   const interpreter = await command(python, ["-c", "import sys; print(sys.executable)"], { timeout: 10000 });
@@ -60,7 +62,7 @@ export async function launchPrivateDesktopBrowser({ profile, timeout, controlled
     return { browser, desktop };
   } catch (error) {
     // Returning the connected browser lets the normal cleanup path close it and
-    // await the launcher. A failed launch must retain profiles without an exit receipt.
+    // await the launcher. A failed launch retains its profile until an exit receipt.
     error.browser = browser;
     error.desktop = desktop;
     const status = await fs.readFile(desktop.filename, "utf8").then(JSON.parse).catch(() => null);
@@ -69,11 +71,12 @@ export async function launchPrivateDesktopBrowser({ profile, timeout, controlled
   }
 }
 
-// Start minimized without ever creating a window on the user's input desktop.
+// Create the first window minimized on the verified private desktop.
 // Restore only inside the private desktop so native popup and surface rendering
-// work normally; a minimized compositor cannot supply reliable screenshots.
+// use an active compositor capable of reliable screenshots.
 export async function createPrivateWindow(browser, timeout) {
   const session = await browser.target().createCDPSession();
+  let windowFailure, result;
   try {
     const target = await session.send("Target.createTarget", { url: "about:blank", newWindow: true,
       windowState: "minimized", background: true, focus: false });
@@ -83,8 +86,14 @@ export async function createPrivateWindow(browser, timeout) {
       target.url() === "about:blank", { timeout })).asPage();
     await session.send("Browser.setWindowBounds", { windowId: initial.windowId, bounds: { windowState: "normal" } });
     await page.bringToFront();
-    return { page, window: { id: initial.windowId, initialState: "minimized", restoredOnPrivateDesktop: true } };
-  } finally { await session.detach(); }
+    result = { page, window: { id: initial.windowId, initialState: "minimized", restoredOnPrivateDesktop: true } };
+  } catch (error) { windowFailure = error; }
+  // Browser shutdown can dispose the session during a failed window command.
+  // Preserve that first failure; surface cleanup errors after successful setup.
+  try { await session.detach(); }
+  catch (error) { windowFailure ||= error; }
+  if (windowFailure) throw windowFailure;
+  return result;
 }
 
 /*

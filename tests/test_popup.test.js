@@ -1,7 +1,7 @@
 /*
  * These tests cover popup state, settings normalization, preview rendering, and
  * export messaging. They use jsdom and mocked chrome APIs so UI behavior stays
- * testable without loading the extension in Chrome or Firefox.
+ * testable in a controlled DOM; native browser checks use the optional QA harness.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -155,6 +155,47 @@ function activatePopupTab(state, tabId) {
 }
 
 describe("popup", () => {
+  it("waits for saved settings before previews or exports", async () => {
+    const { state, hooks } = await loadPopup();
+    activatePopupTab(state, 9);
+    state.tabMessages[0].callback(EASYEDA_PART_CONTEXT);
+    expect(hooks.elements.downloadButton.disabled).toBe(true);
+    expect(state.runtimeMessages).toHaveLength(0);
+    await applyStoredSettings(state);
+    expect(hooks.elements.downloadButton.disabled).toBe(false);
+    expect(state.runtimeMessages[0].message.type).toBe("GET_PART_PREVIEWS");
+  });
+
+  it("keeps exports disabled after settings fail to load", async () => {
+    const { dom, chrome, state, hooks } = await loadPopup();
+    chrome.runtime.lastError = { message: "Storage unavailable." };
+    state.storageGetCalls[0].callback({});
+    chrome.runtime.lastError = null;
+    await flushAsyncWork();
+    await flushAsyncWork();
+    activatePopupTab(state, 9);
+    state.tabMessages[0].callback(EASYEDA_PART_CONTEXT);
+    dispatchChange(dom, hooks.elements.downloadSymbolEl);
+    expect(hooks.elements.statusEl.textContent).toContain("Failed to load settings");
+    expect(hooks.elements.downloadButton.disabled).toBe(true);
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages).toHaveLength(0);
+  });
+
+  it("keeps an export pending when selections change", async () => {
+    const { dom, state, hooks } = await loadPopup();
+    await applyStoredSettings(state);
+    activatePopupTab(state, 9);
+    state.tabMessages[0].callback(EASYEDA_PART_CONTEXT);
+    hooks.elements.downloadButton.click();
+    hooks.elements.downloadModelEl.checked = false;
+    dispatchChange(dom, hooks.elements.downloadModelEl);
+    expect(hooks.elements.downloadButton.disabled).toBe(true);
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages.filter(({ message }) => message.type === "EXPORT_PART")).toHaveLength(1);
+    state.runtimeMessages.at(-1).callback({ ok: true, downloadCount: 1 });
+    expect(hooks.elements.downloadButton.disabled).toBe(false);
+  });
   it("displays the captured LCSC summary MPN and forwards its catalogue lookup (issue #18)", async () => {
     const page = loadContentScript(readRepoFile("tests/fixtures/issue_18_lcsc.html"),
       { url: "https://www.lcsc.com/product-detail/C34846.html" });

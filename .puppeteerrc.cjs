@@ -1,4 +1,7 @@
-// Keep downloaded Chrome for Testing binaries inside the ignored QA output.
+/*
+ * Configure Puppeteer's pinned Chrome cache under ignored QA output. Browser
+ * acquisition belongs to the harness; the extension runs as unpacked source.
+ */
 /* global __dirname */
 const path = require("node:path");
 module.exports = {

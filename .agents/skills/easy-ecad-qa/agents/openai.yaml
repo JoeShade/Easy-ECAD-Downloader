@@ -1,0 +1,6 @@
+interface:
+  display_name: "Easy ECAD — Extension-only QA"
+  short_description: "Inspect extension-owned defects; exclude upstream failures"
+  default_prompt: "Use $easy-ecad-qa with the existing private-desktop harness and ../qa-run/easy_ecad_url_test_matrix_extension_only.md, unless another matrix path is specified. Inspect actual evidence, require extension ownership for FAIL, and record upstream or harness limitations as coverage context. Before a new full matrix, open the documented credential terminal and wait for successful user entry. Start a fresh campaign unless explicitly resuming this campaign. Do not debug, change code or create GitHub issues."
+policy:
+  allow_implicit_invocation: false

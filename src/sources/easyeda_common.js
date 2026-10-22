@@ -121,8 +121,8 @@ function buildSymbolPreviewSvg(cadData) {
       const fields = line.split("~").slice(1);
       const path = String(fields[0] || "").trim();
       if (path) {
-        // Native SVG preserves curves, relative commands and subpaths that
-        // the separate KiCad exporter's restricted path loop cannot express.
+        // Native SVG preserves curves, relative commands and subpaths. The
+        // separate KiCad exporter owns its restricted CAD conversion rules.
         svgParts.push(`<path d="${escapeSvgAttribute(path)}" stroke-width="1" fill="${symbolPreviewFill(fields[4])}" />`);
       }
     } else if (designator === "C") {
@@ -150,11 +150,13 @@ function buildFootprintPreviewSvg(cadData) {
   }
   const bbox = dataStr.BBox || { x: 0, y: 0, width: 120, height: 120 };
   const pad = 8;
+  const width = toNumber(bbox.width, 120);
+  const height = toNumber(bbox.height, 120);
   const viewBox = {
-    x: bbox.x - pad,
-    y: bbox.y - pad,
-    width: bbox.width + pad * 2,
-    height: bbox.height + pad * 2
+    x: toNumber(bbox.x) - pad,
+    y: toNumber(bbox.y) - pad,
+    width: (width > 0 ? width : 120) + pad * 2,
+    height: (height > 0 ? height : 120) + pad * 2
   };
   const shapes = dataStr.shape || [];
   const svgParts = [];
@@ -173,6 +175,8 @@ function buildFootprintPreviewSvg(cadData) {
       const padPoints = parsePoints(fields[9]);
       const rotation = toNumber(fields[10]);
       const holeRadius = toNumber(fields[8]);
+      // Oval point fields can contain axis guide points. Their visible outline
+      // comes from the center, size and rotation.
       if (padPoints.length >= 3 && shape !== "OVAL" && shape !== "ELLIPSE") {
         const polygon = pointsToSvg(padPoints);
         svgParts.push(`<polygon points="${polygon}" fill="#0f172a" stroke="none" />`);
@@ -226,7 +230,7 @@ function buildFootprintPreviewSvg(cadData) {
       const strokeWidth = toNumber(fields[0], 0.2);
       const path = String(fields[3] || "").trim();
       if (path) {
-        svgParts.push(`<path d="${path}" stroke-width="${strokeWidth}" />`);
+        svgParts.push(`<path d="${escapeSvgAttribute(path)}" stroke-width="${strokeWidth}" />`);
       }
     } else if (designator === "RECT") {
       const x = toNumber(fields[0]);
@@ -264,6 +268,8 @@ async function fetchCadData(fetchImpl, lcscId) {
   return payload.result;
 }
 
+// EasyEDA embeds model UUID/title attributes in JSON within an SVGNODE shape.
+// Scan only those records and let malformed optional model metadata warn locally.
 function find3dModelInfo(packageDetail) {
   const shapes = packageDetail?.dataStr?.shape || [];
   for (const line of shapes) {

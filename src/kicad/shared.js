@@ -18,7 +18,7 @@ const KI_SYMBOL_CONFIG = {
 };
 
 const KI_FOOTPRINT_TEMPLATES = {
-  moduleInfo: "(module {packageLib}:{packageName} (layer F.Cu) (tedit {edit})\n",
+  moduleInfo: "(module {packageName} (layer F.Cu) (tedit {edit})\n",
   fpType: "\t(attr {componentType})\n",
   reference:
     "\t(fp_text reference REF** (at {posX} {posY}) (layer F.SilkS)\n\t\t(effects (font (size 1 1) (thickness 0.15)))\n\t)\n",
@@ -114,10 +114,32 @@ function toBool(value) {
   return Boolean(value);
 }
 
+// Library identifiers have stricter character rules than display properties.
+// Keep the original property text and replace KiCad's forbidden ID characters
+// here, alongside the existing whitespace removal and slash normalization.
 function sanitizeFields(name) {
-  return String(name || "").replace(/\s+/g, "").replace(/\//g, "_");
+  return String(name || "").replace(/\s+/g, "").replace(/[/<>"\\:]/g, "_");
 }
 
+// KiCad uses quoted S-expression strings: escaping backslashes first preserves
+// literal quotes and backslashes supplied by upstream names and property text.
+function escapeKiCadString(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r");
+}
+
+// Existing footprint atoms stay readable; whitespace or delimiters require a
+// quoted string so a part label remains one value in the surrounding expression.
+function quoteKiCadAtom(value) {
+  const text = String(value ?? "");
+  return /^[^\s()"\\|#]+$/.test(text) ? text : `"${escapeKiCadString(text)}"`;
+}
+
+// EasyEDA marks an active-low label with a trailing '#'; KiCad wraps its
+// overbar text in '~{...}', preserving slash-separated labels independently.
 function applyTextStyle(text) {
   if (text.endsWith("#")) {
     return `~{${text.slice(0, -1)}}`;
@@ -132,6 +154,7 @@ function applyPinNameStyle(pinName) {
     .join("/");
 }
 
+// One EasyEDA drawing unit is ten mils (0.254 mm).
 function pxToMm(dim) {
   return 10.0 * Number(dim) * 0.0254;
 }
@@ -140,28 +163,27 @@ function convertToMm(dim) {
   return Number(dim) * 10 * 0.0254;
 }
 
+// Read the absolute move, line, elliptical-arc and close commands used by the
+// converter's supported EasyEDA path subset. Each repeated argument group
+// becomes a separate record for the geometry conversion stage.
 function parseSvgPath(svgPath) {
-  let path = String(svgPath || "");
-  if (!path.endsWith(" ")) {
-    path += " ";
-  }
-  path = path.replace(/,/g, " ");
-  const matches = [...path.matchAll(/([a-zA-Z])([ ,\-+.\d]+)/g)];
+  // SVG numbers may touch at a sign or decimal point; e/E belongs to an
+  // exponent. Keep command splitting separate from numeric tokenization.
+  const matches = String(svgPath || "").matchAll(/([a-df-z])([^a-df-z]*)/gi);
   const parsed = [];
 
   for (const match of matches) {
     const cmd = match[1];
-    const args = match[2].trim().split(/\s+/);
+    const args = match[2].match(/[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/gi) || [];
     if (cmd === "M") {
-      for (let i = 0; i < args.length; i += 2) {
-        parsed.push({
-          type: "M",
-          startX: toNumber(args[i]),
-          startY: toNumber(args[i + 1])
-        });
+      for (let i = 0; i + 1 < args.length; i += 2) {
+        // Extra coordinate pairs after moveto are implicit line segments.
+        parsed.push(i === 0
+          ? { type: "M", startX: toNumber(args[i]), startY: toNumber(args[i + 1]) }
+          : { type: "L", posX: toNumber(args[i]), posY: toNumber(args[i + 1]) });
       }
     } else if (cmd === "A") {
-      for (let i = 0; i < args.length; i += 7) {
+      for (let i = 0; i + 6 < args.length; i += 7) {
         parsed.push({
           type: "A",
           radiusX: toNumber(args[i]),
@@ -174,7 +196,7 @@ function parseSvgPath(svgPath) {
         });
       }
     } else if (cmd === "L") {
-      for (let i = 0; i < args.length; i += 2) {
+      for (let i = 0; i + 1 < args.length; i += 2) {
         parsed.push({
           type: "L",
           posX: toNumber(args[i]),
@@ -197,6 +219,9 @@ function toDegrees(angle) {
   return (angle / Math.PI) * 180;
 }
 
+// Convert an SVG arc's endpoints and radii to its center and signed sweep.
+// Endpoint coordinates permit two possible centers; the large-arc and sweep
+// flags choose the center and travel direction required by the source path.
 function computeArc(
   startX,
   startY,
@@ -227,6 +252,7 @@ function computeArc(
 
   const radiiCheck = prx && pry ? px1 / prx + py1 / pry : 0;
   if (radiiCheck > 1) {
+    // SVG expands radii that are too short to connect the given endpoints.
     rx = Math.sqrt(radiiCheck) * rx;
     ry = Math.sqrt(radiiCheck) * ry;
     prx = rx * rx;
@@ -265,11 +291,14 @@ function computeArc(
   }
 
   const extentSign = angleExtent < 0 ? 1 : -1;
+  // KiCad's legacy footprint arc angle uses the opposite sign to SVG's sweep.
   angleExtent = (Math.abs(angleExtent) % 360) * extentSign;
 
   return { cx, cy, angleExtent };
 }
 
+// Modern symbol arcs identify a point halfway around a circular sweep instead
+// of storing a center and angle; averaging these angles supplies that third point.
 function getMiddleArcPos(centerX, centerY, radius, angleStart, angleEnd) {
   const middleX =
     centerX + radius * Math.cos(((angleStart + angleEnd) / 2) * (Math.PI / 180));
@@ -289,6 +318,7 @@ function indentLines(text, indentLevel) {
     .join("\n");
 }
 
+// EasyEDA rotations in the 0..360 range become KiCad's signed -180..180 range.
 function angleToKi(rotation) {
   const value = toNumber(rotation);
   if (!Number.isFinite(value)) {
@@ -325,11 +355,13 @@ export {
   applyTextStyle,
   computeArc,
   convertToMm,
+  escapeKiCadString,
   fpToKi,
   getMiddleArcPos,
   indentLines,
   parseSvgPath,
   pxToMm,
+  quoteKiCadAtom,
   rotate,
   sanitizeFields,
   toBool,

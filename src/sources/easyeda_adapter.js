@@ -22,170 +22,12 @@ import {
   writeTextArtifact,
   writeUrlArtifact
 } from "../core/export_artifacts.js";
+import { rewriteFirstKicadFootprintModelPath } from "../core/kicad_footprint_models.js";
 import { sanitizeFilenamePart } from "../core/preview_data.js";
 import { completedModelFilename } from "../core/download_receipts.js";
 
 function buildSafeFilename(name, extension, fallback) {
   return `${sanitizeFilenamePart(name, fallback)}.${extension}`;
-}
-
-function isKicadModelBlockStart(text, index) {
-  const token = "(model";
-  const nextChar = text[index + token.length] || "";
-  return (
-    text.startsWith(token, index) &&
-    (!nextChar || /\s|\)/.test(nextChar))
-  );
-}
-
-function findNextKicadModelBlock(text, startIndex = 0) {
-  let inString = false;
-  let escaped = false;
-
-  for (let index = startIndex; index < text.length; index += 1) {
-    const char = text[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === "\"") {
-        inString = false;
-      }
-      continue;
-    }
-    if (char === "\"") {
-      inString = true;
-      continue;
-    }
-    if (!isKicadModelBlockStart(text, index)) {
-      continue;
-    }
-
-    let depth = 0;
-    let blockInString = false;
-    let blockEscaped = false;
-    for (let blockEnd = index; blockEnd < text.length; blockEnd += 1) {
-      const blockChar = text[blockEnd];
-      if (blockInString) {
-        if (blockEscaped) {
-          blockEscaped = false;
-        } else if (blockChar === "\\") {
-          blockEscaped = true;
-        } else if (blockChar === "\"") {
-          blockInString = false;
-        }
-        continue;
-      }
-      if (blockChar === "\"") {
-        blockInString = true;
-        continue;
-      }
-      if (blockChar === "(") {
-        depth += 1;
-      } else if (blockChar === ")") {
-        depth -= 1;
-        if (depth === 0) {
-          return { start: index, end: blockEnd + 1 };
-        }
-      }
-    }
-
-    return null;
-  }
-
-  return null;
-}
-
-function stripKicadFootprintModels(footprintText) {
-  const text = String(footprintText || "");
-  let result = "";
-  let cursor = 0;
-  let modelBlock = findNextKicadModelBlock(text, cursor);
-
-  while (modelBlock) {
-    let removalStart = modelBlock.start;
-    while (removalStart > cursor && /[ \t]/.test(text[removalStart - 1])) {
-      removalStart -= 1;
-    }
-    if (removalStart > cursor && text[removalStart - 1] === "\n") {
-      removalStart -= 1;
-      if (removalStart > cursor && text[removalStart - 1] === "\r") {
-        removalStart -= 1;
-      }
-    }
-
-    result += text.slice(cursor, removalStart);
-    cursor = modelBlock.end;
-    modelBlock = findNextKicadModelBlock(text, cursor);
-  }
-
-  result += text.slice(cursor);
-  return result.replace(/(?:[ \t]*\r?\n){3,}/g, "\n\n");
-}
-
-function findKicadModelPathRange(modelBlockText) {
-  if (!modelBlockText.startsWith("(model")) {
-    return null;
-  }
-
-  let cursor = "(model".length;
-  while (cursor < modelBlockText.length && /\s/.test(modelBlockText[cursor])) {
-    cursor += 1;
-  }
-
-  if (modelBlockText[cursor] === "\"") {
-    const pathStart = cursor + 1;
-    let escaped = false;
-    for (cursor = pathStart; cursor < modelBlockText.length; cursor += 1) {
-      const char = modelBlockText[cursor];
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === "\"") {
-        return { start: pathStart, end: cursor, quoted: true };
-      }
-    }
-    return null;
-  }
-
-  const pathStart = cursor;
-  while (
-    cursor < modelBlockText.length &&
-    !/[\s)]/.test(modelBlockText[cursor])
-  ) {
-    cursor += 1;
-  }
-
-  if (cursor === pathStart) {
-    return null;
-  }
-
-  return { start: pathStart, end: cursor };
-}
-
-function rewriteFirstKicadFootprintModelPath(footprintText, modelPath) {
-  if (!modelPath) {
-    return stripKicadFootprintModels(footprintText);
-  }
-
-  const text = String(footprintText || "");
-  const modelBlock = findNextKicadModelBlock(text);
-  if (!modelBlock) {
-    return text;
-  }
-
-  const modelBlockText = text.slice(modelBlock.start, modelBlock.end);
-  const pathRange = findKicadModelPathRange(modelBlockText);
-  if (!pathRange) {
-    return text;
-  }
-
-  const escapedPath = modelPath.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  const pathToken = pathRange.quoted ? escapedPath : `"${escapedPath}"`;
-  const rewrittenBlock = `${modelBlockText.slice(0, pathRange.start)}${pathToken}${modelBlockText.slice(pathRange.end)}`;
-  return `${text.slice(0, modelBlock.start)}${rewrittenBlock}${text.slice(modelBlock.end)}`;
 }
 
 function resolveEasyedaFootprintModelPath(exportContext, modelFilename) {
@@ -200,6 +42,9 @@ function resolveEasyedaFootprintModelPath(exportContext, modelFilename) {
   return `../${libraryName}.3dshapes/${modelFilename}`;
 }
 
+// Export models before their dependent footprint so completed receipts determine
+// its portable model reference. Optional model failures become warnings while
+// the requested symbol, footprint, and datasheet paths retain their own outcomes.
 function createEasyedaAdapter(deps) {
   const {
     chromeApi,
@@ -246,7 +91,6 @@ function createEasyedaAdapter(deps) {
           downloads,
           exportContext,
           symbolContent: kicadFiles.symbol.content,
-          symbolName: kicadFiles.symbol.name,
           individualFilename: symbolFilename
         });
       }

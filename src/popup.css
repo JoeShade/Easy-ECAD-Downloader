@@ -164,83 +164,8 @@ h1 {
   font-size: 12px;
 }
 
-.settings-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.settings-label {
-  color: #1c1f24;
-}
-
-.settings-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 8px 10px;
-  font: inherit;
-  color: #1c1f24;
-  background: #ffffff;
-}
-
-.settings-input:focus {
-  outline: 2px solid rgba(22, 99, 214, 0.18);
-  outline-offset: 1px;
-  border-color: #1663d6;
-}
-
-.settings-input:disabled {
-  background: #f8fafc;
-  color: #94a3b8;
-  cursor: not-allowed;
-}
-
-.settings-readonly {
-  display: block;
-  box-sizing: border-box;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 8px 10px;
-  background: #f8fafc;
-  color: #5b6470;
-  line-height: 1.4;
-}
-
-.settings-hint {
-  margin: 0;
-  color: #5b6470;
-  font-size: 11px;
-}
-
-.settings-actions {
-  display: flex;
-}
-
 .settings-button {
   align-self: center;
-}
-
-.advanced-settings {
-  border-top: 1px solid #e2e8f0;
-  padding-top: 8px;
-}
-
-.advanced-settings summary {
-  cursor: pointer;
-  font-weight: 600;
-  list-style: none;
-}
-
-.advanced-settings summary::-webkit-details-marker {
-  display: none;
-}
-
-.advanced-settings[open] {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 /* Individual option row. */
