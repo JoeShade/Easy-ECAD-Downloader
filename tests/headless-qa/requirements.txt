@@ -1,0 +1,2 @@
+# Pillow decodes render output and supports image evidence checks in render_support.py.
+Pillow==12.2.0

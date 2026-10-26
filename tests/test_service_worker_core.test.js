@@ -10,6 +10,7 @@ import {
   buildLibraryPaths,
   loadSettings,
   normalizeLibraryDownloadRoot,
+  parseLibraryDownloadRoot,
   parseSamacsysProxyAuthorizationHeader,
   parseSamacsysFirefoxProxyBaseUrl
 } from "../src/core/settings.js";
@@ -33,6 +34,28 @@ import {
 } from "./helpers/service_worker_harness.js";
 
 describe("service worker core helpers", () => {
+  it.each([
+    ...'<>:"|?*', "\u0000", "\t", "\n", "\u001f", "\u007f"
+  ])("rejects a library folder containing invalid character %j", character => {
+    expect(parseLibraryDownloadRoot(`KiCad/Part${character}Folder`)).toEqual({
+      value: "easyECADDownloader", isValid: false
+    });
+  });
+
+  it("rejects control characters at the edges before trimming the folder", () => {
+    expect(parseLibraryDownloadRoot("\nKiCad/Parts\t")).toEqual({
+      value: "easyECADDownloader", isValid: false
+    });
+  });
+
+  it.each([
+    ["  KiCad\\\\Workspace//Parts  ", "KiCad/Workspace/Parts"],
+    ["KiCad/Parts (revision 2)", "KiCad/Parts (revision 2)"],
+    ["KiCad/Prüfung_2026-10", "KiCad/Prüfung_2026-10"]
+  ])("retains a portable nested library path: %s", (input, normalized) => {
+    expect(parseLibraryDownloadRoot(input)).toEqual({ value: normalized, isValid: true });
+  });
+
   it("normalizes library roots and builds KiCad library paths", () => {
     expect(normalizeLibraryDownloadRoot("KiCad\\Workspace")).toBe("KiCad/Workspace");
     expect(normalizeLibraryDownloadRoot("../outside")).toBe("easyECADDownloader");
@@ -76,6 +99,23 @@ describe("service worker core helpers", () => {
     });
   });
 
+  it.each(["local", "session"])("rejects settings read failures from %s storage", async area => {
+    const { chrome } = createServiceWorkerChrome();
+    chrome.storage[area].get.mockImplementation((_defaults, callback) => {
+      chrome.runtime.lastError = { message: "Storage unavailable" };
+      callback();
+      chrome.runtime.lastError = null;
+    });
+
+    await expect(loadSettings(chrome)).rejects.toThrow("Failed to load settings: Storage unavailable");
+  });
+
+  it("uses empty session secrets when the optional session storage API is absent", async () => {
+    const { chrome } = createServiceWorkerChrome();
+    delete chrome.storage.session;
+    expect((await loadSettings(chrome)).samacsysFirefoxPassword).toBe("");
+  });
+
   it("surfaces data-URL fallback download failures", async () => {
     const { chrome } = createServiceWorkerChrome();
     chrome.downloads.download.mockImplementation((_options, callback) => {
@@ -93,12 +133,32 @@ describe("service worker core helpers", () => {
 
   it("merges symbol blocks without duplicating existing ids", () => {
     const symbolBlock = extractSymbolBlock(MOUSER_SYMBOL);
-    const merged = mergeSymbolIntoLibrary(createSymbolLibrary(), symbolBlock, "STM32C552KEU6");
+    const merged = mergeSymbolIntoLibrary(createSymbolLibrary(), symbolBlock);
 
     expect(symbolBlock).toContain('(symbol "STM32C552KEU6"');
     expect(merged).toContain('(symbol "ExistingSymbol"');
     expect(merged).toContain('(symbol "STM32C552KEU6"');
-    expect(mergeSymbolIntoLibrary(merged, symbolBlock, "STM32C552KEU6")).toBe(merged);
+    expect(mergeSymbolIntoLibrary(merged, symbolBlock)).toBe(merged);
+  });
+
+  it("merges compact libraries and distinguishes nested unit IDs from root symbols", () => {
+    const existing = '(kicad_symbol_lib (symbol "Parent" (symbol "Parent_0_1" (rectangle))))';
+    const incoming = '(kicad_symbol_lib (symbol "Parent_0_1" (property "Value" "new (symbol)")))';
+    const block = extractSymbolBlock(incoming);
+    expect(block).toBe('(symbol "Parent_0_1" (property "Value" "new (symbol)"))');
+    const merged = mergeSymbolIntoLibrary(existing, block);
+    expect(merged).toContain('(property "Value" "new (symbol)")');
+    expect(merged).toContain('(symbol "Parent" (symbol "Parent_0_1" (rectangle)))');
+    expect(mergeSymbolIntoLibrary(merged, block)).toBe(merged);
+  });
+
+  it("merges each new root symbol from a multi-symbol library independently", () => {
+    const existing = '(kicad_symbol_lib (symbol "Existing" (property "Value" "original")))';
+    const incoming = '(kicad_symbol_lib (symbol "Existing" (property "Value" "replacement")) (symbol "New"))';
+    const merged = mergeSymbolIntoLibrary(existing, extractSymbolBlock(incoming));
+    expect(merged).toContain('(property "Value" "original")');
+    expect(merged).not.toContain('"replacement"');
+    expect(merged).toContain('(symbol "New")');
   });
 
   it("rewrites Mouser symbol and footprint library references", () => {

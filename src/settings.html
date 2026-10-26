@@ -1,4 +1,6 @@
 <!doctype html>
+<!-- Options markup binds layout, relay and credential controls to settings_page.js;
+     explicit Save and Discard actions govern persisted form edits. -->
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -11,7 +13,7 @@
       <header class="page-header">
         <h1>Easy ECAD Downloader Settings</h1>
       </header>
-      <form id="settingsForm" class="settings-form">
+      <form id="settingsForm" class="settings-form" inert>
         <section class="settings-section" aria-labelledby="downloadSettingsTitle">
           <h2 id="downloadSettingsTitle">Downloads</h2>
           <label class="option">
@@ -242,16 +244,17 @@
           </section>
         </details>
 
-        <div class="form-actions">
-          <p id="status" class="status" aria-live="polite"></p>
-          <button id="saveSettings" type="submit" class="primary">
-            Save
-          </button>
-          <button id="discardSettings" type="button" class="secondary danger">
-            Discard
-          </button>
-        </div>
       </form>
+      <!-- Status stays accessible while the form is inert during loading/saving. -->
+      <div class="form-actions">
+        <p id="status" class="status" aria-live="polite"></p>
+        <button id="saveSettings" type="submit" form="settingsForm" class="primary" disabled>
+          Save
+        </button>
+        <button id="discardSettings" type="button" class="secondary danger" disabled>
+          Discard
+        </button>
+      </div>
       <p class="footer">
         Visit the
         <a

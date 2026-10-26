@@ -1,5 +1,6 @@
 {
   "name": "easy-ecad-downloader",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,13 +10,20 @@
     "audit": "npm audit --audit-level=moderate",
     "lint": "eslint .",
     "pretest": "node tests/helpers/check_node_version.js",
-    "test": "vitest run",
+    "test": "vitest run --exclude=tests/headless-qa/**",
+    "qa:preflight": "node tests/headless-qa/preflight.js",
+    "qa:run": "node tests/headless-qa/run.js",
+    "qa:auth": "node tests/headless-qa/auth.js",
+    "qa:lint": "python -m ruff check --cache-dir .qa-output/cache/ruff tests/headless-qa",
+    "qa:smoke": "vitest run tests/headless-qa && python -m unittest discover -s tests/headless-qa -p test_*.py",
     "validate": "npm run lint && npm test && npm run audit && git diff --check"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@resvg/resvg-js": "2.6.2",
     "eslint": "^10.3.0",
     "jsdom": "^29.0.1",
-    "vitest": "^4.1.0"
+    "puppeteer": "25.13.0",
+    "vitest": "^4.1.12"
   }
 }

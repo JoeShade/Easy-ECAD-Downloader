@@ -32,7 +32,9 @@ const EMPTY_PART_CONTEXT = {
 };
 
 function isEasyedaHost() {
-  return /(^|\.)((lcsc|jlcpcb)\.com)$/i.test(window.location.hostname);
+  const url = new URL(window.location.href);
+  return /^https?:$/.test(url.protocol) && !url.username && !url.password &&
+    !url.port && /^(www\.)?(lcsc|jlcpcb)\.com$/i.test(url.hostname);
 }
 
 function isElement14Host() {
@@ -65,19 +67,6 @@ function buildQueryString(entries) {
         `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`
     )
     .join("&");
-}
-
-// Pull the LCSC part id (e.g., C12345) out of a text string.
-function extractLcscId(text) {
-  if (!text) {
-    return null;
-  }
-  const match = text.toUpperCase().match(/C\d{3,}/);
-  return match ? match[0] : null;
-}
-
-function extractManufacturerPartNumber(text) {
-  return normalizeDetectedValue(text);
 }
 
 function hasExpectedLabel(label, expectedLabels, exact = false) {
@@ -130,16 +119,95 @@ function findLabeledText(expectedLabels, exact = false) {
   );
 }
 
-function findManufacturerPartNumber() {
-  return extractManufacturerPartNumber(findLabeledText(["mfr. part #"]));
+// Match the supported product route on an approved host. Only the catalogue ID
+// in the route identifies the part; URL metadata remains separate evidence.
+function parseEasyedaProductUrl(value) {
+  let url;
+  try { url = new URL(value); } catch { return null; }
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.port) {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  const route = /^(www\.)?jlcpcb\.com$/.test(host)
+    ? /^\/partdetail\/[^/]+\/(C\d{3,})\/?$/i
+    : /^(www\.)?lcsc\.com$/.test(host)
+      ? /^\/product-detail\/(C\d{3,})\.html\/?$/i : null;
+  return route?.exec(url.pathname)?.[1].toUpperCase() || null;
 }
 
-// Try the targeted searches first, then scan the entire page as a fallback.
+// A field belongs to the current product only when its whole ancestry and its
+// linked product identity qualify. Callers apply the same checks to descendants.
+function isCurrentEasyedaField(node) {
+  if (node.closest("aside, nav, footer, script, style, template")) return false;
+  for (let element = node; element; element = element.parentElement) {
+    if (element.hidden || element.hasAttribute("inert") ||
+        element.getAttribute("aria-hidden") === "true" ||
+        /recommend|related/i.test(`${element.id} ${element.className} ${element.getAttribute("aria-label") || ""}`)) return false;
+    const style = window.getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden" ||
+        style.visibility === "collapse") return false;
+    if (element.matches("a[href]")) {
+      const linkedId = parseEasyedaProductUrl(element.href);
+      if (linkedId && linkedId !== parseEasyedaProductUrl(window.location.href)) return false;
+    }
+  }
+  return true;
+}
+
+// Collect adjacent label/value pairs, then qualify each table using its own
+// visible catalogue anchor. This keeps recommendations and nested data separate.
+function findEasyedaFieldPairs() {
+  const isCurrentPair = ([label, value]) => value &&
+    !label.parentElement.closest("dd, td, th") &&
+    !value.querySelector("dt, dd, tr, script, style, template") &&
+    [label, value].every(node => isCurrentEasyedaField(node) &&
+      Array.from(node.querySelectorAll("*")).every(isCurrentEasyedaField));
+  // Modern JLCPCB wraps each dt/dd pair in a div. Adjacent siblings preserve
+  // the label/value association within each group.
+  const root = document.querySelector("main") || document.body;
+  const pairs = Array.from(root.querySelectorAll("dl dt"), label => [
+    label, label.nextElementSibling?.matches("dd") ? label.nextElementSibling : null
+  ]).filter(isCurrentPair);
+  for (const table of root.querySelectorAll("table")) {
+    const rows = Array.from(table.querySelectorAll("tr"))
+      .filter(row => row.closest("table") === table)
+      .map(row => Array.from(row.children).filter(cell => cell.matches("th, td")))
+      .filter(cells => cells.length === 2 && isCurrentPair(cells));
+  // Current LCSC summaries use plain tables. Their own visible,
+    // complete catalogue field must qualify the table before reading its MPN.
+    const isLcscSummary = /^(www\.)?lcsc\.com$/i.test(window.location.hostname) &&
+      rows.some(([label, value]) => normalizeLabel(label.textContent || "") === "lcsc part #" &&
+        /^C\d{3,}$/i.test(normalizeDetectedValue(value.textContent) || ""));
+    if (table.matches(".tableInfoWrap") || isLcscSummary) pairs.push(...rows);
+  }
+  return pairs;
+}
+
+function findEasyedaFieldValues(expectedLabels) {
+  return findEasyedaFieldPairs()
+    .filter(([label]) => expectedLabels.includes(normalizeLabel(label.textContent || "")))
+    .map(([, value]) => normalizeDetectedValue(value.textContent))
+    .filter(Boolean);
+}
+
+function findManufacturerPartNumber() {
+  const urlId = parseEasyedaProductUrl(window.location.href);
+  const fieldIds = findEasyedaFieldValues(["jlcpcb part #", "lcsc part #"]);
+  // An agreeing catalogue field associates the MPN with the URL's current part.
+  if (urlId && !fieldIds.some(value => value.toUpperCase() === urlId)) return null;
+  const values = new Set(findEasyedaFieldValues(["mfr part #", "mpn"]));
+  return values.size === 1 ? [...values][0] : null;
+}
+
 function findLcscId() {
-  return (
-    extractLcscId(findLabeledText(["jlcpcb part #", "lcsc part #"])) ||
-    extractLcscId(document.body.textContent)
-  );
+  if (!isEasyedaHost()) return null;
+  // Only a complete labelled C + 3-or-more digits value or a supported route
+  // identifies the product. Repeated evidence agrees; distinct IDs fail closed.
+  const ids = new Set(findEasyedaFieldValues(["jlcpcb part #", "lcsc part #"])
+    .filter(value => /^C\d{3,}$/i.test(value)).map(value => value.toUpperCase()));
+  const urlId = parseEasyedaProductUrl(window.location.href);
+  if (urlId) ids.add(urlId);
+  return ids.size === 1 ? [...ids][0] : null;
 }
 
 function getInputValue(id) {
@@ -176,7 +244,8 @@ function getQueryParamValue(...keys) {
 function parseFarnellDescriptionProductData() {
   const description =
     getMetaContent("property", "og:description") || getMetaContent("name", "description");
-  const match = description?.match(/Buy\s+(.+?)\s*-\s*(.+?)\s*-\s*/i);
+  // Spaced hyphens delimit fields; internal MPN and manufacturer hyphens stay intact.
+  const match = description?.match(/Buy\s+(.+?)\s+-\s+(.+?)\s+-\s+/i);
   if (!match) {
     return null;
   }
@@ -218,15 +287,21 @@ function parseFarnellPathProductData() {
   }
 
   const [, manufacturerSlug, manufacturerPartSlug, sourcePartNumber] = pathnameMatch;
-  return {
-    manufacturerName: normalizeDetectedValue(
-      decodeURIComponent(manufacturerSlug).replace(/-/g, " ").toUpperCase()
-    ),
-    manufacturerPartNumber: normalizeDetectedValue(
-      decodeURIComponent(manufacturerPartSlug).toUpperCase()
-    ),
-    sourcePartNumber: normalizeDetectedValue(decodeURIComponent(sourcePartNumber))
-  };
+  // URL parsing preserves malformed percent escapes. Decode inside the guard
+  // so valid page fields and ECAD metadata remain available as fallbacks.
+  try {
+    return {
+      manufacturerName: normalizeDetectedValue(
+        decodeURIComponent(manufacturerSlug).replace(/-/g, " ").toUpperCase()
+      ),
+      manufacturerPartNumber: normalizeDetectedValue(
+        decodeURIComponent(manufacturerPartSlug).toUpperCase()
+      ),
+      sourcePartNumber: normalizeDetectedValue(decodeURIComponent(sourcePartNumber))
+    };
+  } catch {
+    return null;
+  }
 }
 
 function findFarnellProductData() {
@@ -288,6 +363,8 @@ function extractEventValueFromOnclick(onclickText, key) {
   return normalizeDetectedValue(match?.[1] || "");
 }
 
+// Read the fixed quoted arguments of Mouser's ECAD callback as inert text. The
+// selected fields become encoded query values for the SamacSys entry request.
 function parseLoadPartDivCall(onclickText) {
   const text = String(onclickText || "");
   const match = text.match(

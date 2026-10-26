@@ -21,6 +21,8 @@ function normalizeUrl(value) {
   return url;
 }
 
+// btoa consumes one byte per character. Bounded chunks avoid the JavaScript
+// argument-count limit while preserving the original binary bytes.
 function arrayBufferToBase64(buffer) {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   let binary = "";
@@ -31,6 +33,8 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
+// Percent encoding yields UTF-8 bytes; unescape turns each byte into the
+// binary-string representation accepted by btoa, including non-ASCII CAD text.
 function textToBase64(text) {
   return btoa(unescape(encodeURIComponent(text)));
 }

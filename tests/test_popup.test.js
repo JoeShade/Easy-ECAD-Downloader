@@ -1,11 +1,14 @@
 /*
  * These tests cover popup state, settings normalization, preview rendering, and
  * export messaging. They use jsdom and mocked chrome APIs so UI behavior stays
- * testable without loading the extension in Chrome or Firefox.
+ * testable in a controlled DOM; native browser checks use the optional QA harness.
  */
 
 import { describe, expect, it, vi } from "vitest";
 import { JSDOM } from "jsdom";
+import { loadContentScript } from "./helpers/content_script_harness.js";
+import cases from "./fixtures/issue_13.json";
+import farnellProducts from "./fixtures/issue_15.json";
 
 import {
   flushAsyncWork,
@@ -152,6 +155,145 @@ function activatePopupTab(state, tabId) {
 }
 
 describe("popup", () => {
+  it("waits for saved settings before previews or exports", async () => {
+    const { state, hooks } = await loadPopup();
+    activatePopupTab(state, 9);
+    state.tabMessages[0].callback(EASYEDA_PART_CONTEXT);
+    expect(hooks.elements.downloadButton.disabled).toBe(true);
+    expect(state.runtimeMessages).toHaveLength(0);
+    await applyStoredSettings(state);
+    expect(hooks.elements.downloadButton.disabled).toBe(false);
+    expect(state.runtimeMessages[0].message.type).toBe("GET_PART_PREVIEWS");
+  });
+
+  it("keeps exports disabled after settings fail to load", async () => {
+    const { dom, chrome, state, hooks } = await loadPopup();
+    chrome.runtime.lastError = { message: "Storage unavailable." };
+    state.storageGetCalls[0].callback({});
+    chrome.runtime.lastError = null;
+    await flushAsyncWork();
+    await flushAsyncWork();
+    activatePopupTab(state, 9);
+    state.tabMessages[0].callback(EASYEDA_PART_CONTEXT);
+    dispatchChange(dom, hooks.elements.downloadSymbolEl);
+    expect(hooks.elements.statusEl.textContent).toContain("Failed to load settings");
+    expect(hooks.elements.downloadButton.disabled).toBe(true);
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages).toHaveLength(0);
+  });
+
+  it("keeps an export pending when selections change", async () => {
+    const { dom, state, hooks } = await loadPopup();
+    await applyStoredSettings(state);
+    activatePopupTab(state, 9);
+    state.tabMessages[0].callback(EASYEDA_PART_CONTEXT);
+    hooks.elements.downloadButton.click();
+    hooks.elements.downloadModelEl.checked = false;
+    dispatchChange(dom, hooks.elements.downloadModelEl);
+    expect(hooks.elements.downloadButton.disabled).toBe(true);
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages.filter(({ message }) => message.type === "EXPORT_PART")).toHaveLength(1);
+    state.runtimeMessages.at(-1).callback({ ok: true, downloadCount: 1 });
+    expect(hooks.elements.downloadButton.disabled).toBe(false);
+  });
+  it("displays the captured LCSC summary MPN and forwards its catalogue lookup (issue #18)", async () => {
+    const page = loadContentScript(readRepoFile("tests/fixtures/issue_18_lcsc.html"),
+      { url: "https://www.lcsc.com/product-detail/C34846.html" });
+    const partContext = page.requestContext();
+    const { state, hooks, dom } = await loadPopup();
+    await applyStoredSettings(state);
+    activatePopupTab(state, 7);
+    state.tabMessages[0].callback(partContext);
+    expect(hooks.elements.manufacturerPartNumberEl.textContent).toBe("3296W-1-103LF");
+    expect(hooks.elements.partNumberEl.textContent).toBe("C34846");
+    expect(state.runtimeMessages[0].message).toEqual({ type: "GET_PART_PREVIEWS", partContext });
+    expect(partContext.lookup).toEqual({ lcscId: "C34846" });
+    state.runtimeMessages[0].callback({ ok: true, previews: {}, metadata: { datasheetAvailable: false } });
+    await flushAsyncWork();
+    expect(hooks.elements.downloadButton.disabled).toBe(false);
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages[1].message).toMatchObject({ type: "EXPORT_PART", partContext });
+    page.dom.window.close();
+    dom.window.close();
+  });
+
+  it.each(farnellProducts)("displays and forwards the full $brand issue #15 identity", async product => {
+    const page = loadContentScript("", { url: product.url,
+      headMarkup: `<meta property="og:description" content="Buy ${product.mpn} - YAGEO - Resistor.">` });
+    const partContext = page.requestContext();
+    const { state, hooks } = await loadPopup();
+    await applyStoredSettings(state);
+    activatePopupTab(state, 7);
+    state.tabMessages[0].callback(partContext);
+    expect(hooks.elements.manufacturerPartNumberEl.textContent).toBe(product.mpn);
+    expect(hooks.elements.partNumberEl.textContent).toBe(product.orderCode);
+    expect(hooks.elements.sourcePartLabelEl.textContent).toBe(product.label);
+    expect(partContext.lookup.manufacturerName).toBe("YAGEO");
+    const params = new URL(partContext.lookup.entryUrl).searchParams;
+    expect(params.get("mpn")).toBe(product.mpn);
+    expect(params.get("mna")).toBe("YAGEO");
+    expect(state.runtimeMessages[0].message).toEqual({ type: "GET_PART_PREVIEWS", partContext });
+    state.runtimeMessages[0].callback({ ok: true, previews: {}, metadata: { datasheetAvailable: false } });
+    await flushAsyncWork();
+    expect(hooks.elements.downloadButton.disabled).toBe(false);
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages[1].message).toMatchObject({ type: "EXPORT_PART", partContext });
+    page.dom.window.close();
+  });
+
+  it.each(["0451001.MRL", "RC1206FR-0710KL", "G5V-1 DC5", null])(
+    "displays exact detected MPN %s while retaining catalogue-based previews and export", async mpn => {
+      const page = loadContentScript(`<dl><dt>LCSC Part #</dt><dd>C132649</dd>
+        ${mpn === null ? "" : `<dt>MPN</dt><dd>${mpn}</dd>`}</dl>`,
+      { url: "https://lcsc.com/product-detail/C132649.html" });
+      const partContext = page.requestContext();
+      const { state, hooks } = await loadPopup();
+      await applyStoredSettings(state);
+      activatePopupTab(state, 7);
+      state.tabMessages[0].callback(partContext);
+      expect(hooks.elements.manufacturerPartNumberEl.textContent).toBe(mpn || "Not found");
+      expect(hooks.elements.partNumberEl.textContent).toBe("C132649");
+      expect(state.runtimeMessages[0].message).toEqual({ type: "GET_PART_PREVIEWS", partContext });
+      expect(state.runtimeMessages[0].message.partContext.lookup.lcscId).toBe("C132649");
+      state.runtimeMessages[0].callback({ ok: true, previews: {}, metadata: { datasheetAvailable: false } });
+      await flushAsyncWork();
+      expect(hooks.elements.downloadButton.disabled).toBe(false);
+      hooks.elements.downloadButton.click();
+      expect(state.runtimeMessages[1].message).toMatchObject({ type: "EXPORT_PART", partContext });
+      expect(state.runtimeMessages[1].message.partContext.lookup.lcscId).toBe("C132649");
+      page.dom.window.close();
+    });
+
+  it.each(cases)("displays and forwards the resolved $case identity for previews and export", async row => {
+    const partContext = { ...EASYEDA_PART_CONTEXT, sourcePartNumber: row.id,
+      manufacturerPartNumber: row.mpn, lookup: { lcscId: row.id } };
+    const { state, hooks } = await loadPopup();
+    await applyStoredSettings(state);
+    activatePopupTab(state, 7);
+    state.tabMessages[0].callback(partContext);
+    expect(hooks.elements.partNumberEl.textContent).toBe(row.id);
+    expect(hooks.elements.manufacturerPartNumberEl.textContent).toBe(row.mpn);
+    expect(state.runtimeMessages[0].message).toEqual({ type: "GET_PART_PREVIEWS", partContext });
+    expect(state.runtimeMessages[0].message.partContext.lookup.lcscId).toBe(row.id);
+    state.runtimeMessages[0].callback({ ok: true, previews: {}, metadata: { datasheetAvailable: false } });
+    await flushAsyncWork();
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages[1].message).toMatchObject({ type: "EXPORT_PART", partContext });
+    expect(state.runtimeMessages[1].message.partContext.lookup.lcscId).toBe(row.id);
+  });
+
+  it("makes no preview or export request for an unavailable context", async () => {
+    const partContext = { provider: null, sourcePartLabel: null, sourcePartNumber: null,
+      manufacturerPartNumber: null, lookup: null };
+    const { state, hooks } = await loadPopup();
+    await applyStoredSettings(state);
+    activatePopupTab(state, 7);
+    state.tabMessages[0].callback(partContext);
+    expect(hooks.elements.downloadButton.disabled).toBe(true);
+    hooks.elements.downloadButton.click();
+    expect(state.runtimeMessages).toHaveLength(0);
+  });
+
   it("starts in a loading state and requests the active tab plus saved settings", async () => {
     const { state, hooks } = await loadPopup();
 

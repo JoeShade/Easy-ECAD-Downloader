@@ -8,6 +8,8 @@ This is an experimental feature and the maintainers take no responsibility for t
 
 The extension sends a `POST` request to the proxy. The proxy request includes a `Authorization` header to authorise the request with the proxy using a bearer token, while the JSON payload includes the SamacSys headers and body separately:
 
+Configure the final HTTPS relay endpoint directly. The extension rejects relay HTTP redirects because replaying the JSON body would forward upstream credentials. The worker's own approved SamacSys redirect handling is separate from this outer transport.
+
 SamacSys Body and Headers:
 ```json
 {
@@ -69,6 +71,8 @@ The response is then edited to include permissive CORS headers so the browser ex
 ## Below is a minimal cloudflare worker implementation  
 
 ```js
+// Relay authenticated requests to approved SamacSys HTTPS destinations, checking
+// each redirect before sending origin-bound credentials to the next server.
 const ALLOWED_HOST_PATTERN = /(^|\.)componentsearchengine\.com$/i;
 
 const CORS_HEADERS = {
@@ -117,12 +121,9 @@ function validateTargetUrl(url) {
     throw new Error("Invalid upstream URL.");
   }
 
-  if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-    throw new Error("Unsupported upstream protocol.");
-  }
-
-  if (!ALLOWED_HOST_PATTERN.test(parsedUrl.hostname)) {
-    throw new Error("Upstream host is not allowed.");
+  if (parsedUrl.protocol !== "https:" || parsedUrl.username || parsedUrl.password ||
+      parsedUrl.port || !ALLOWED_HOST_PATTERN.test(parsedUrl.hostname)) {
+    throw new Error("Upstream URL must use HTTPS on componentsearchengine.com.");
   }
 
   return parsedUrl.toString();
@@ -175,6 +176,37 @@ function buildUpstreamRequest(payload) {
   return requestInit;
 }
 
+// Fetch redirects manually so every hop satisfies the same destination rule.
+// Origin changes clear credentials; Fetch's POST/303 rules govern body replay.
+async function fetchAllowedUpstream(url, init) {
+  for (let redirects = 0; ; redirects += 1) {
+    const response = await fetch(url, { ...init, redirect: "manual" });
+    const location = response.headers.get("Location");
+    if (![301, 302, 303, 307, 308].includes(response.status) || !location) {
+      return { response, url };
+    }
+    await response.body?.cancel();
+    if (redirects >= 10) throw new Error("Too many upstream redirects.");
+    const nextUrl = validateTargetUrl(new URL(location, url).href);
+    const headers = new Headers(init.headers);
+    if (new URL(nextUrl).origin !== new URL(url).origin) {
+      headers.delete("Cookie");
+      headers.delete("Authorization");
+    }
+    const method = String(init.method || "GET").toUpperCase();
+    const becomesGet = (response.status === 303 && !["GET", "HEAD"].includes(method)) ||
+      ([301, 302].includes(response.status) && method === "POST");
+    if (becomesGet) {
+      init = { ...init, method: "GET", body: undefined };
+      for (const name of ["Content-Type", "Content-Encoding", "Content-Language", "Content-Location"]) {
+        headers.delete(name);
+      }
+    }
+    init = { ...init, headers };
+    url = nextUrl;
+  }
+}
+
 async function handleRequest(request, env) {
   if (request.method === "OPTIONS") {
     return new Response(null, {
@@ -210,10 +242,9 @@ async function handleRequest(request, env) {
   let upstreamResponse;
 
   try {
-    upstreamResponse = await fetch(upstreamUrl, {
-      ...buildUpstreamRequest(payload),
-      redirect: "follow"
-    });
+    const result = await fetchAllowedUpstream(upstreamUrl, buildUpstreamRequest(payload));
+    upstreamResponse = result.response;
+    upstreamUrl = result.url;
   } catch (error) {
     return textResponse(
       `Upstream fetch failed: ${error.message || "network error"}`,
@@ -241,7 +272,7 @@ export default {
 2. Create a new Worker.
 3. Replace the default Worker code with the proxy script above.
 4. Add a Worker secret named:
-   `PROXY_BEARER_TOKEN`
+   `RELAY_BEARER_TOKEN`
    Set its value to a long random token, for example:
    `a-long-random-private-token`
    Do not include `Bearer` in the secret value. The Worker code adds/checks the `Bearer` prefix itself.
@@ -252,11 +283,11 @@ export default {
 8. Paste the Worker URL into:
 
    `Firefox SamacSys proxy URL`
-9. Paste the same raw token into:
+9. Paste `Bearer ` followed by the same token into:
 
    `Authentication token`
 
-   For the Worker code above, this should match the value stored in `PROXY_BEARER_TOKEN`.
+   For example, `Bearer a-long-random-private-token` matches the raw secret stored in `RELAY_BEARER_TOKEN`.
 10. Leave `Remember helper password/token on this device` unticked unless you accept the local-storage risk.
 11. Reload the target Mouser, Farnell, element14, or Newark page.
 12. Test previews in Firefox first.
@@ -264,7 +295,7 @@ export default {
 
 ## Notes
 
-- This Porxy is intentionally restricted to `*.componentsearchengine.com` targets so it does not become a generic open proxy.
+- The proxy permits HTTPS on `componentsearchengine.com` and its subdomains at the standard port. Every redirect is validated, and origin changes clear forwarded cookies and authorization.
 - The current extension relay contract expects the proxy to expose the final upstream URL through `x-upstream-url`.
-- The extension sends porxy auth separately in the proxy request `Authorization` header.
+- The extension sends proxy auth separately in the proxy request `Authorization` header.
 - The extension also forwards an explicit upstream SamacSys `Authorization` header in `headers.Authorization`, sourced from locally generated Basic auth.

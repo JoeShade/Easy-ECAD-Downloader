@@ -11,14 +11,18 @@ import {
   KI_SYMBOL_LIB_VERSION,
   applyPinNameStyle,
   computeArc,
+  escapeKiCadString,
   getMiddleArcPos,
   indentLines,
+  parseSvgPath,
   pxToMm,
   sanitizeFields,
   toDegrees,
   toNumber
 } from "./shared.js";
 
+// Translate source positions to millimetres around the symbol origin. KiCad's
+// symbol Y axis points upward, so positions and arc sweep directions both flip.
 function convertSymbolToKiCad(symbol) {
   const pins = symbol.pins.map((pin) => {
     const pinLengthRaw = String(pin.pinPath.path || "").split("h").pop();
@@ -85,8 +89,6 @@ function convertSymbolToKiCad(symbol) {
     const startY = -pxToMm(move.startY - symbol.bbox.y);
     const endX = pxToMm(ellipseArc.endX - symbol.bbox.x);
     const endY = -pxToMm(ellipseArc.endY - symbol.bbox.y);
-    const radius = pxToMm(Math.max(ellipseArc.radiusX, ellipseArc.radiusY));
-
     const arcInfo = computeArc(
       startX,
       startY,
@@ -99,8 +101,16 @@ function convertSymbolToKiCad(symbol) {
       endY
     );
 
+    // SVG expands undersized circular radii to connect the endpoints. The
+    // computed center therefore determines the effective radius of that circle.
+    // Unequal source radii retain the existing circular approximation.
+    const radius = Math.abs(ellipseArc.radiusX) === Math.abs(ellipseArc.radiusY)
+      ? Math.hypot(startX - arcInfo.cx, startY - arcInfo.cy)
+      : pxToMm(Math.max(ellipseArc.radiusX, ellipseArc.radiusY));
     const startAngle = toDegrees(Math.atan2(startY - arcInfo.cy, startX - arcInfo.cx));
-    const endAngle = startAngle + arcInfo.angleExtent;
+    // computeArc returns the legacy footprint angle sign. Reverse it here to
+    // sample the symbol's middle point on the SVG-selected side of the circle.
+    const endAngle = startAngle - arcInfo.angleExtent;
     const middle = getMiddleArcPos(
       arcInfo.cx,
       arcInfo.cy,
@@ -121,6 +131,8 @@ function convertSymbolToKiCad(symbol) {
   }
 
   function convertPolyline(polyline, closeIfFilled) {
+    // Filled shapes repeat their first point to close the outline. Open shapes
+    // are closed only when both coordinates of the endpoints already match.
     const rawPts = String(polyline.points || "").trim().split(/\s+/);
     const xPoints = [];
     const yPoints = [];
@@ -137,7 +149,8 @@ function convertSymbolToKiCad(symbol) {
     }
     return {
       points: xPoints.map((x, idx) => [x, yPoints[idx]]),
-      isClosed: xPoints[0] === xPoints[xPoints.length - 1]
+      isClosed: xPoints[0] === xPoints[xPoints.length - 1] &&
+        yPoints[0] === yPoints[yPoints.length - 1]
     };
   }
 
@@ -156,26 +169,32 @@ function convertSymbolToKiCad(symbol) {
   }
 
   for (const path of symbol.paths) {
-    const rawPts = String(path.paths || "").trim().split(/\s+/);
-    const xPoints = [];
-    const yPoints = [];
-    for (let i = 0; i < rawPts.length; i++) {
-      const token = rawPts[i];
-      if (token === "M" || token === "L") {
-        xPoints.push(pxToMm(toNumber(rawPts[i + 1]) - symbol.bbox.x));
-        yPoints.push(-pxToMm(toNumber(rawPts[i + 2]) - symbol.bbox.y));
-        i += 2;
-      } else if (token === "Z") {
-        xPoints.push(xPoints[0]);
-        yPoints.push(yPoints[0]);
+    // Reuse command parsing so absolute M/L coordinates work with spaces,
+    // commas or directly attached command letters. This export stage handles
+    // straight segments and Z closure; previews preserve full native SVG paths.
+    let points = [];
+    // Each M starts a separate outline. Flush it before the next move so
+    // disconnected source graphics retain their independent boundaries.
+    function appendSubpath() {
+      if (points.length < 2) return;
+      const [firstX, firstY] = points[0];
+      const [lastX, lastY] = points[points.length - 1];
+      polygons.push({ points, isClosed: firstX === lastX && firstY === lastY });
+    }
+    for (const step of parseSvgPath(path.paths)) {
+      if (step.type === "M" || step.type === "L") {
+        if (step.type === "M") {
+          appendSubpath();
+          points = [];
+        }
+        const x = step.type === "M" ? step.startX : step.posX;
+        const y = step.type === "M" ? step.startY : step.posY;
+        points.push([pxToMm(x - symbol.bbox.x), -pxToMm(y - symbol.bbox.y)]);
+      } else if (step.type === "Z" && points.length) {
+        points.push(points[0]);
       }
     }
-    if (xPoints.length && yPoints.length) {
-      polygons.push({
-        points: xPoints.map((x, idx) => [x, yPoints[idx]]),
-        isClosed: xPoints[0] === xPoints[xPoints.length - 1]
-      });
-    }
+    appendSubpath();
   }
 
   return {
@@ -191,8 +210,8 @@ function convertSymbolToKiCad(symbol) {
 function formatSymbolProperty(key, value, id, posY, rotation, hide = false) {
   const hideFlag = hide ? "hide" : "";
   return `(property
-  "${key}"
-  "${value}"
+  "${escapeKiCadString(key)}"
+  "${escapeKiCadString(value)}"
   (id ${id})
   (at 0 ${posY.toFixed(2)} ${rotation})
   (effects (font (size ${KI_SYMBOL_CONFIG.propertyFontSize} ${KI_SYMBOL_CONFIG.propertyFontSize}) ) ${hideFlag})
@@ -205,8 +224,8 @@ function exportSymbolPin(pin) {
   return `(pin ${pinType} ${pin.style}
   (at ${pin.posX.toFixed(2)} ${pin.posY.toFixed(2)} ${pin.orientation})
   (length ${pin.length.toFixed(2)})
-  (name "${pinName}" (effects (font (size ${KI_SYMBOL_CONFIG.pinNameSize} ${KI_SYMBOL_CONFIG.pinNameSize}))))
-  (number "${pin.number}" (effects (font (size ${KI_SYMBOL_CONFIG.pinNumSize} ${KI_SYMBOL_CONFIG.pinNumSize}))))
+  (name "${escapeKiCadString(pinName)}" (effects (font (size ${KI_SYMBOL_CONFIG.pinNameSize} ${KI_SYMBOL_CONFIG.pinNameSize}))))
+  (number "${escapeKiCadString(pin.number)}" (effects (font (size ${KI_SYMBOL_CONFIG.pinNumSize} ${KI_SYMBOL_CONFIG.pinNumSize}))))
 )`;
 }
 
@@ -250,6 +269,8 @@ ${poly.points
 )`;
 }
 
+// Keep all converted graphics and pins in a common unit, and stack generated
+// properties beyond the pin bounds so ordinary labels remain outside the body.
 function exportKiCadSymbolLibrary(kiSymbol) {
   const pins = kiSymbol.pins || [];
   const yLow = pins.length ? Math.min(...pins.map((pin) => pin.posY)) : 0;
@@ -294,7 +315,7 @@ function exportKiCadSymbolLibrary(kiSymbol) {
     );
   }
 
-  const symbolId = sanitizeFields(kiSymbol.info.name || "symbol");
+  const symbolId = escapeKiCadString(sanitizeFields(kiSymbol.info.name || "symbol"));
   const graphicItems = [
     ...kiSymbol.rectangles.map(exportSymbolRectangle),
     ...kiSymbol.circles.map(exportSymbolCircle),

@@ -9,6 +9,8 @@ const browserGlobals = {
   Blob: "readonly",
   DecompressionStream: "readonly",
   Event: "readonly",
+  Headers: "readonly",
+  Request: "readonly",
   Response: "readonly",
   TextDecoder: "readonly",
   TextEncoder: "readonly",
@@ -40,6 +42,8 @@ export default [
   {
     ignores: [
       "coverage/**",
+      ".qa-output/**",
+      "**/qa-run/**",
       "easyECADDownloader.crx",
       "easyECADDownloader.zip",
       "node_modules/**"

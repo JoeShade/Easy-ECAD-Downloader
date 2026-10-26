@@ -1,7 +1,7 @@
 /*
  * Shared fixtures for converter and worker tests. They provide compact but
- * representative EasyEDA payloads and KiCad symbol libraries without tying
- * tests to large external fixture files.
+ * representative EasyEDA payloads and KiCad symbol libraries as self-contained
+ * inputs for focused tests.
  */
 
 export function createCadData({

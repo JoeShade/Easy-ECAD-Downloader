@@ -1,11 +1,13 @@
 /*
  * Parses the EasyEDA footprint payload into a normalized intermediate shape.
  * The emitter layer then converts this parsed structure into KiCad footprint
- * text without having to understand the original EasyEDA wire format.
+ * text using named geometry and metadata fields defined here.
  */
 
 import { toBool, toNumber } from "./shared.js";
 
+// Decode '~'-delimited source records into named fields while retaining source
+// units. The emitter converts lengths together, keeping metadata rotations in degrees.
 function parseEasyedaFootprint(cadData) {
   const dataStr = cadData?.packageDetail?.dataStr;
   const info = dataStr?.head?.c_para || {};
@@ -56,7 +58,10 @@ function parseEasyedaFootprint(cadData) {
         id: fields[11] || "",
         holeLength: toNumber(fields[12]),
         holePoint: fields[13] || "",
-        isPlated: toBool(fields[14]),
+        // EasyEDA uses Y/N for plating; older records can leave this field
+        // empty. Explicit negative values select a mechanical hole, while
+        // legacy omitted values preserve the existing plated-hole behavior.
+        isPlated: !/^(?:n|false|0)$/i.test(String(fields[14] || "").trim()),
         isLocked: toBool(fields[15])
       });
     } else if (designator === "TRACK") {
@@ -135,6 +140,7 @@ function parseEasyedaFootprint(cadData) {
         isLocked: toBool(fields[13])
       });
     } else if (designator === "SVGNODE") {
+      // EasyEDA embeds the optional model placement as JSON inside the shape list.
       try {
         const attrs = JSON.parse(fields[0]).attrs;
         footprint.model3d = {
@@ -152,7 +158,7 @@ function parseEasyedaFootprint(cadData) {
           }
         };
       } catch (error) {
-        // ignore malformed 3D metadata
+        // Malformed optional model metadata leaves the 2D footprint available.
       }
     }
   }

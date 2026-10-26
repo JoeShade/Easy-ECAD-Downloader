@@ -6,6 +6,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
@@ -19,6 +20,8 @@ import {
 } from "./helpers/security_hygiene.js";
 
 const GOVERNANCE_FILES = [
+  "README.md",
+  "contributing.md",
   "AGENTS.md",
   "CHANGELOG.md",
   "SECURITY.md",
@@ -27,7 +30,7 @@ const GOVERNANCE_FILES = [
   "docs/deviations.md"
 ];
 
-const SKIPPED_REPOSITORY_DIRS = new Set([".git", "coverage", "node_modules"]);
+const SKIPPED_REPOSITORY_DIRS = new Set([".git", "coverage", "node_modules", ".qa-output", "__pycache__"]);
 
 const CONVENTIONAL_ROOT_FILES = new Set([
   ".gitignore",
@@ -123,13 +126,15 @@ function applicableSourceFiles() {
     }
     for (const entry of fs.readdirSync(basePath, { recursive: true })) {
       const fullPath = path.join(basePath, entry);
-      if (fs.statSync(fullPath).isFile() && fullPath.endsWith(".js")) {
+      if (fs.statSync(fullPath).isFile() && fullPath.endsWith(".js") &&
+          !isLocalQaArtifact(repoRelativePath(fullPath))) {
         files.push(fullPath);
       }
     }
   }
 
   const supportFiles = [
+    path.join(REPO_ROOT, ".puppeteerrc.cjs"),
     path.join(REPO_ROOT, "eslint.config.js"),
     path.join(REPO_ROOT, "vitest.config.js")
   ];
@@ -142,12 +147,22 @@ function applicableSourceFiles() {
   return files.sort();
 }
 
+// Local campaign inputs and evidence are developer data. Scan maintained files
+// separately, and check Git's tracked paths below so forced additions still fail.
+function isLocalQaArtifact(relativePath) {
+  const filename = path.posix.basename(relativePath);
+  return relativePath.split("/").includes("qa-run") ||
+    /^test[-_]matrix.*\.md$/i.test(filename) ||
+    /^easy_ecad_url_test_matrix.*\.md$/.test(filename);
+}
+
 function repositoryFiles() {
   const files = [];
 
   function walk(directoryPath) {
     for (const entry of fs.readdirSync(directoryPath, { withFileTypes: true })) {
       const fullPath = path.join(directoryPath, entry.name);
+      if (isLocalQaArtifact(repoRelativePath(fullPath))) continue;
       if (entry.isDirectory()) {
         if (!SKIPPED_REPOSITORY_DIRS.has(entry.name)) {
           walk(fullPath);
@@ -238,14 +253,59 @@ function functionDeclarationNames(text) {
     .map((match) => match[1]);
 }
 
-function hasTopLevelExplainer(text) {
+// Interpreter/runner declarations precede documentation; each maintained
+// language then uses its native opening comment or module docstring syntax.
+function hasTopLevelExplainer(text, relativePath = "file.js") {
   const normalized = normalizeNewlines(text)
     .trimStart()
-    .replace(/^\/\/ .+work in this file: .+\n/, "");
+    .replace(/^\/\/ .+work in this file: .+\n/, "")
+    .replace(/^\/\/ @vitest-environment [^\n]+\n/, "");
+  if (relativePath.endsWith(".py")) return /^"""[\s\S]+?"""/.test(normalized);
+  if (/\.(ps1|ya?ml)$/.test(relativePath)) return /^# \S[^\n]+/.test(normalized);
+  if (relativePath.endsWith(".html")) return /^(?:<!doctype html>\n)?<!--[\s\S]+?-->/i.test(normalized);
   return /^\/\*\n \* [\s\S]*?\n \*\//.test(normalized);
 }
 
+function isMaintainedCodeFile(relativePath) {
+  if (relativePath.startsWith("tests/fixtures/")) return false;
+  return /^(src|tests)\/.*\.(?:[cm]?js|py|ps1|html|css)$/.test(relativePath) ||
+    /^\.agents\/skills\/[^/]+\/scripts\/.*\.(?:[cm]?js|py|ps1)$/.test(relativePath) ||
+    /^\.github\/workflows\/.*\.ya?ml$/.test(relativePath) ||
+    [".puppeteerrc.cjs", "eslint.config.js", "vitest.config.js"].includes(relativePath);
+}
+
 describe("repository hygiene", () => {
+  it("keeps local QA matrices and campaign evidence untracked while retaining the harness", () => {
+    const trackedPaths = execFileSync("git", ["ls-files", "-z"], {
+      cwd: REPO_ROOT, encoding: "utf8"
+    }).split("\0").filter(Boolean);
+    expect(trackedPaths.filter(isLocalQaArtifact)).toEqual([]);
+    const toolingPaths = [
+      "tests/headless-qa/run.js",
+      ".agents/skills/easy-ecad-qa/scripts/matrix.py",
+      ".agents/skills/easy-ecad-qa/scripts/test_matrix.py"
+    ];
+    expect(trackedPaths).toEqual(expect.arrayContaining(toolingPaths));
+    const localPaths = [
+      "TEST-MATRIX.MD", "TEST-MATRIX-50-EASYEDA-20261022.MD", "test_matrix.md",
+      "easy_ecad_url_test_matrix_extension_only.md", "qa-run/campaigns/example/result.json"
+    ];
+    const ignoredPaths = execFileSync("git", ["check-ignore", "--no-index", "--stdin"], {
+      cwd: REPO_ROOT, encoding: "utf8", input: [...localPaths, ...toolingPaths].join("\n") + "\n"
+    }).trim().split(/\r?\n/);
+    expect(ignoredPaths).toEqual(localPaths);
+  });
+
+  it.each([".github/workflows/release.yml", ".agents/skills/example/scripts/check.py", "tests/helper.mjs"])(
+    "includes maintained support code in explainer coverage: %s", relativePath => {
+      expect(isMaintainedCodeFile(relativePath)).toBe(true);
+    }
+  );
+  it.each(["helper.py", "helper.ps1", "config.cjs", "config.mjs", "config.toml"])(
+    "includes maintained tooling in secret scans: %s", relativePath => {
+      expect(isTextFile(relativePath)).toBe(true);
+    }
+  );
   it("requires the governance files", () => {
     for (const relativePath of GOVERNANCE_FILES) {
       expect(fs.existsSync(path.join(REPO_ROOT, relativePath))).toBe(true);
@@ -469,12 +529,12 @@ describe("repository hygiene", () => {
     expect(missingOrDuplicated).toEqual([]);
   });
 
-  it("keeps a top-level explainer on applicable maintained JS files", () => {
+  it("keeps a top-level explainer on maintained source, tests and executable tooling", () => {
     const missingExplainers = [];
 
-    for (const fullPath of applicableSourceFiles()) {
+    for (const fullPath of repositoryFiles().filter(file => isMaintainedCodeFile(repoRelativePath(file)))) {
       const text = fs.readFileSync(fullPath, "utf8");
-      if (!hasTopLevelExplainer(text)) {
+      if (!hasTopLevelExplainer(text, repoRelativePath(fullPath))) {
         missingExplainers.push(path.relative(REPO_ROOT, fullPath));
       }
     }
@@ -487,10 +547,21 @@ describe("repository hygiene", () => {
       fs.readFileSync(path.join(REPO_ROOT, "docs/deviations.md"), "utf8")
     );
 
-    expect(deviationsText).toContain("No current deviations.");
-    expect(deviationsText).not.toMatch(/^\s*[-*]\s+/m);
-    expect(deviationsText).not.toMatch(/^\s*\d+\.\s+/m);
-    expect(deviationsText.trim().split("\n").length).toBeLessThanOrEqual(3);
+    expect(deviationsText).toMatch(/^# Current Deviations/);
+    expect(deviationsText).not.toMatch(/^#{1,6}\s+.*(?:backlog|history|resolved)/im);
+    const entries = deviationsText.split(/^## /m).slice(1);
+    if (!entries.length) {
+      expect(deviationsText.trim().split("\n").at(-1)).toBe("No current deviations.");
+    } else {
+      expect(deviationsText).not.toContain("No current deviations.");
+      // Each entry ties current behavior to its design requirement and an
+      // observable closure condition, keeping this file useful during repair.
+      for (const entry of entries) {
+        for (const field of ["Expected:", "Observed:", "Closure:"]) {
+          expect(entry).toContain(field);
+        }
+      }
+    }
   });
 
   it("does not keep stale footer migration language in governance docs", () => {

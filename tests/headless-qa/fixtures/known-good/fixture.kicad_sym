@@ -1,0 +1,12 @@
+(kicad_symbol_lib (version 20231120) (generator "headless_qa")
+  (symbol "QA_Block" (in_bom yes) (on_board yes)
+    (property "Reference" "U" (at 0 5 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "QA_Block" (at 0 -5 0) (effects (font (size 1.27 1.27))))
+    (symbol "QA_Block_0_1"
+      (rectangle (start -2.54 2.54) (end 2.54 -2.54) (stroke (width 0) (type default)) (fill (type background))))
+    (symbol "QA_Block_1_1"
+      (pin passive line (at -5.08 0 0) (length 2.54) (name "A" (effects (font (size 1.27 1.27)))) (number "1" (effects (font (size 1.27 1.27)))))
+      (pin passive line (at 5.08 0 180) (length 2.54) (name "B" (effects (font (size 1.27 1.27)))) (number "2" (effects (font (size 1.27 1.27)))))))
+  (symbol "QA_Second" (extends "QA_Block")
+    (property "Reference" "U" (at 0 5 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "QA_Second" (at 0 -5 0) (effects (font (size 1.27 1.27))))))

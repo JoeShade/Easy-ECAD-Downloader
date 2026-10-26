@@ -1,0 +1,16 @@
+[
+  {
+    "brand": "farnell",
+    "label": "Farnell part",
+    "mpn": "RC2010FK-0710KL",
+    "orderCode": "9235680",
+    "url": "https://uk.farnell.com/yageo/rc2010fk-0710kl/res-10k-1-0-5w-2010-thick-film/dp/9235680"
+  },
+  {
+    "brand": "element14",
+    "label": "element14 part",
+    "mpn": "RC2512FK-0710KL",
+    "orderCode": "1283117",
+    "url": "https://au.element14.com/yageo/rc2512fk-0710kl/res-10k-1-1w-2512-thick-film/dp/1283117"
+  }
+]

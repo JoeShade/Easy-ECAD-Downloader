@@ -1,7 +1,7 @@
 /*
  * Shared security-hygiene scanners for current-tree and Git-history tests.
- * They keep secret-shape rules aligned without treating docs or source footer
- * contact details as credential findings.
+ * They keep secret-shape rules aligned while allowing documented source-footer
+ * contact details and placeholder credential identities.
  */
 
 import path from "node:path";
@@ -25,11 +25,16 @@ const FORBIDDEN_ARTIFACT_PATTERNS = [
 ];
 
 const TEXT_FILE_EXTENSIONS = new Set([
+  ".cjs",
   ".css",
   ".html",
   ".js",
   ".json",
   ".md",
+  ".mjs",
+  ".ps1",
+  ".py",
+  ".toml",
   ".txt",
   ".yaml",
   ".yml"

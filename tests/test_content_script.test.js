@@ -1,64 +1,25 @@
 /*
  * These tests cover provider-aware DOM detection in the content script. They
  * run the script in jsdom with mocked chrome messaging so page parsing can be
- * exercised without a browser extension.
+ * exercised in an isolated DOM with controlled message listeners.
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { JSDOM } from "jsdom";
+import cases from "./fixtures/issue_13.json";
 
-import { runSourceFile } from "./helpers/test_harness.js";
-
-function loadContentScript(
-  markup,
-  { url = "https://www.lcsc.com/product-detail/example", headMarkup = "" } = {}
-) {
-  const dom = new JSDOM(
-    `<!doctype html><html><head>${headMarkup}</head><body>${markup}</body></html>`,
-    {
-      url
-    }
-  );
-  const listeners = [];
-  const chrome = {
-    runtime: {
-      onMessage: {
-        addListener(listener) {
-          listeners.push(listener);
-        }
-      }
-    }
-  };
-
-  const context = runSourceFile("src/content_script.js", {
-    context: {
-      chrome,
-      document: dom.window.document,
-      window: dom.window
-    },
-    append: `
-globalThis.__testExports = {
-  parseLoadPartDivCall,
-  buildSamacsysEntryUrl,
-  parseSamacsysLinkUrl,
-  findLcscId,
-  findManufacturerPartNumber,
-  findMouserPartContext,
-  findFarnellPartContext,
-  findEasyedaPartContext,
-  findPartContext
-};
-`
-  });
-
-  return {
-    dom,
-    hooks: context.__testExports,
-    listener: listeners[0]
-  };
-}
+import { loadContentScript } from "./helpers/content_script_harness.js";
 
 describe("content script", () => {
+  it("uses SamacSys link metadata when a fallback product path has malformed encoding", () => {
+    const page = loadContentScript(`
+      <dl><dt>Order Code</dt><dd>123456</dd></dl>
+      <a href="https://farnell.componentsearchengine.com/entry_u_newDesign.php?mna=ACME&amp;mpn=PART-1&amp;pna=farnell">ECAD</a>
+    `, { url: "https://uk.farnell.com/acme/%E0%A4%A/part/dp/123456" });
+    expect(page.requestContext()).toMatchObject({
+      provider: "farnellSamacsys", sourcePartNumber: "123456", manufacturerPartNumber: "PART-1"
+    });
+    page.dom.window.close();
+  });
   it("extracts EasyEDA identifiers from supported page text", () => {
     const { hooks } = loadContentScript("<div>ignored</div>");
 
@@ -66,11 +27,9 @@ describe("content script", () => {
     expect(hooks.findManufacturerPartNumber()).toBeNull();
   });
 
-  it("detects EasyEDA/LCSC part context and answers extension messages", () => {
+  it("detects a labelled EasyEDA/LCSC context and answers extension messages", () => {
     const { hooks, listener } = loadContentScript(`
-      <section>
-        Product details mention c777888 in plain text.
-      </section>
+      <dl><dt>LCSC Part #</dt><dd>c777888</dd></dl>
       <dl>
         <dt>Mfr. Part #</dt>
         <dd>STM32F030F4P6</dd>
@@ -549,6 +508,140 @@ describe("content script", () => {
       manufacturerPartNumber: null,
       lookup: null
     });
+  });
+});
+
+// Issue #13 report values provide deterministic fixtures; live-browser acceptance
+// requires separate acquisition evidence.
+describe("EasyEDA current-product identity", () => {
+  it.each(cases)("resolves $case from URL-only, multiple-pair and wrapped-pair evidence", row => {
+    for (const source of ["url", "pairs", "wrapped"]) {
+      const mpn = `<dt>MFR.Part #</dt><dd>${row.mpn}</dd>`;
+      const id = `<dt>LCSC Part #</dt><dd>${row.id}</dd>`;
+      const fields = source === "url" ? mpn : source === "pairs" ? mpn + id :
+        `<div>${mpn}</div><div>${id}</div>`;
+      const page = loadContentScript(`<main><p>${row.wrong} C999999</p><dl>${fields}</dl></main>`,
+        { url: source === "url" ? row.url : "https://lcsc.com/" });
+      expect(page.requestContext()).toEqual({ provider: "easyedaLcsc", sourcePartLabel: "LCSC part",
+        sourcePartNumber: row.id, manufacturerPartNumber: source === "url" ? null : row.mpn,
+        lookup: { lcscId: row.id } });
+    }
+  });
+
+  it.each([
+    ["https://jlcpcb.com/partdetail/C999999-RC0201/C106225?part=C777777#C888888", "C106225"],
+    ["http://www.JLCPCB.com/PARTDETAIL/test/c000123/", "C000123"],
+    ["https://LCSC.com/PRODUCT-DETAIL/c132649.HTML/?id=C999999#C777777", "C132649"]
+  ])("reads only the supported product-route ID: %s", (url, id) => {
+    expect(loadContentScript("", { url }).requestContext().lookup).toEqual({ lcscId: id });
+  });
+
+  it.each([
+    "not a URL", "https://jlcpcb.com.evil.test/partdetail/x/C106225",
+    "https://eviljlcpcb.com/partdetail/x/C106225", "https://lcsc.com.evil.test/product-detail/C132649.html",
+    "https://api.jlcpcb.com/partdetail/x/C106225", "https://jlcpcb.com:444/partdetail/x/C106225",
+    "ftp://jlcpcb.com/partdetail/x/C106225", "https://jlcpcb.com/search/C106225",
+    "https://jlcpcb.com/partdetail/C106225", "https://jlcpcb.com/partdetail/x/RC0201FR",
+    "https://jlcpcb.com/partdetail/x/C106225/extra", "https://jlcpcb.com/partdetail/x/%43106225",
+    "https://jlcpcb.com/?part=C106225#C106225", "https://lcsc.com/product-detail/C132649",
+    "https://lcsc.com/product-detail/x/C132649.html", "https://lcsc.com/product-detail/C132649.html/extra",
+    "https://lcsc.com/search?q=C132649", "https://lcsc.com/product-detail/C12.html"
+  ])("rejects unsupported URL evidence: %s", url => {
+    const page = loadContentScript("<p>RC0201FR C106225</p>");
+    expect(page.hooks.parseEasyedaProductUrl(url)).toBeNull();
+    if (url !== "not a URL") page.dom.reconfigure({ url });
+    expect(page.requestContext().provider).toBeNull();
+  });
+
+  it.each(["https://jlcpcb.com.evil.test/", "https://eviljlcpcb.com/", "ftp://lcsc.com/",
+    "https://api.lcsc.com/"])("rejects labelled evidence on unsupported origins: %s", url => {
+    const page = loadContentScript("<dl><dt>LCSC Part #</dt><dd>C106225</dd></dl>", { url });
+    expect(page.requestContext().provider).toBeNull();
+  });
+
+  it("rejects URL credentials", () => {
+    const url = new URL(cases[0].url);
+    url.username = "user";
+    const page = loadContentScript("", { url: url.href });
+    expect(page.hooks.parseEasyedaProductUrl(url.href)).toBeNull();
+    expect(page.requestContext().provider).toBeNull();
+  });
+
+  it.each(["", "RC0201FR-0710KL", "C12", "prefix C106225", "C106225 suffix", "C106225 C60490"])(
+    "skips invalid whole-field values and accepts later agreeing evidence: %s", value => {
+      const page = loadContentScript(`<main><dl><dt>Mfr. Part #</dt><dd>RC0201FR-0710KL/TR</dd>
+        <dt>LCSC Part #</dt><dd>${value}</dd><dt>LCSC Part #</dt><dd> c106225 </dd></dl>
+        <table class="tableInfoWrap"><tr><th>JLCPCB Part #</th><td>C106225</td></tr></table></main>`,
+        { url: cases[0].url });
+      expect(page.requestContext()).toMatchObject({ sourcePartNumber: "C106225",
+        manufacturerPartNumber: "RC0201FR-0710KL/TR", lookup: { lcscId: "C106225" } });
+    });
+
+  it.each([
+    '<aside><dl><dt>LCSC Part #</dt><dd>C999999</dd></dl></aside>',
+    '<section class="recommendations"><dl><dt>LCSC Part #</dt><dd>C999999</dd></dl></section>',
+    '<section id="related-products"><dl><dt>LCSC Part #</dt><dd>C999999</dd></dl></section>',
+    '<section aria-label="Related products"><dl><dt>LCSC Part #</dt><dd>C999999</dd></dl></section>',
+    ...["hidden", 'aria-hidden="true"', "inert", 'style="display:none"', 'style="visibility:hidden"']
+      .map(attr => `<div ${attr}><dl><dt>LCSC Part #</dt><dd>C999999</dd></dl></div>`),
+    '<dl><dt>LCSC Part #</dt><dd><span style="display:none">C999999</span></dd></dl>',
+    '<dl><dt><span hidden>LCSC Part #</span></dt><dd>C999999</dd></dl>',
+    '<dl><dt>LCSC Part #</dt><dd><script>C999999</script></dd></dl>',
+    '<a href="https://jlcpcb.com/partdetail/other/C999999"><dl><dt>LCSC Part #</dt><dd>C999999</dd></dl></a>',
+    '<script type="application/ld+json">{"sku":"C999999"}</script><p>C999999</p>',
+    '<dl><dt>LCSC Part #</dt><dt>Package</dt><dd>C999999</dd></dl>',
+    '<dl><dt>Other</dt><dd><dl><dt>LCSC Part #</dt><dd>C999999</dd></dl></dd></dl>',
+    '<dl><dt>LCSC Part #</dt><dd><dl><dt>Other</dt><dd>C999999</dd></dl></dd></dl>',
+    '<dl><div><dt>LCSC Part #</dt></div><div><dd>C999999</dd></div></dl>',
+    '<table><tr><td>LCSC Part #</td><td>C999999</td></tr></table>',
+    '<table class="tableInfoWrap"><tr><td>Other</td><td><table><tr><td>LCSC Part #</td><td>C999999</td></tr></table></td></tr></table>'
+  ])("ignores unrelated, hidden or mispaired evidence: %s", markup => {
+    const page = loadContentScript(`<main>${markup}<dl><dt>LCSC Part #</dt><dd>C106225</dd></dl></main>`,
+      { url: cases[0].url });
+    expect(page.requestContext().lookup).toEqual({ lcscId: "C106225" });
+    page.dom.window.document.querySelector("main > dl:last-child").remove();
+    page.dom.reconfigure({ url: "https://jlcpcb.com/" });
+    expect(page.requestContext().provider).toBeNull();
+  });
+
+  it.each(["", "<p>RC0201FR-0710KL</p>", "<p>C106225</p>",
+    "<dl><dt>Some LCSC Part # suggestion</dt><dd>C106225</dd></dl>",
+    "<dl><dt>LCSC Part #</dt><dd>RC0201FR-0710KL</dd></dl>"])("returns unavailable for absent product evidence: %s", markup => {
+    expect(loadContentScript(markup).requestContext().provider).toBeNull();
+  });
+
+  it.each([[cases[0].url, "<dl><dt>LCSC Part #</dt><dd>C60490</dd></dl>"],
+    ["https://lcsc.com/", "<dl><dt>LCSC Part #</dt><dd>C106225</dd><dt>JLCPCB Part #</dt><dd>C60490</dd></dl>"]])(
+    "returns unavailable for ambiguous product evidence: %s", (url, markup) => {
+      expect(loadContentScript(markup, { url }).requestContext().provider).toBeNull();
+    });
+
+  it("recomputes after navigation without mixing stale product fields with a new URL", () => {
+    const page = loadContentScript("<dl><dt>Mfr. Part #</dt><dd>RC0201FR-0710KL</dd><dt>LCSC Part #</dt><dd>C106225</dd></dl>",
+      { url: cases[0].url });
+    expect(page.requestContext().lookup).toEqual({ lcscId: "C106225" });
+    page.dom.reconfigure({ url: cases[1].url });
+    expect(page.requestContext().provider).toBeNull();
+    page.dom.window.document.querySelector("dl").innerHTML = "<dt>Mfr. Part #</dt><dd>RC0201FR-0710KL</dd>";
+    expect(page.requestContext()).toMatchObject({ sourcePartNumber: "C60490", manufacturerPartNumber: null });
+    page.dom.window.document.querySelector("dl").innerHTML = "<dt>Mfr. Part #</dt><dd>RC0402FR-0710KL</dd><dt>LCSC Part #</dt><dd>C60490</dd>";
+    expect(page.requestContext()).toMatchObject({ manufacturerPartNumber: "RC0402FR-0710KL", lookup: { lcscId: "C60490" } });
+    page.dom.reconfigure({ url: "https://jlcpcb.com/" });
+    page.dom.window.document.body.innerHTML = "<p>C777777 RC0805FR-0710KL</p>";
+    expect(page.requestContext().provider).toBeNull();
+  });
+
+  it("scopes fields to main, ignores canonical metadata and omits conflicting MPNs", () => {
+    const page = loadContentScript(`<dl><dt>LCSC Part #</dt><dd>C999999</dd></dl><main><dl>
+      <dt>LCSC Part #</dt><dd>C106225</dd><dt>Mfr. Part #</dt><dd>RC0201FR-0710KL</dd>
+      <dt>Mfr. Part #</dt><dd>Other-MPN</dd></dl></main>`, { url: cases[0].url,
+      headMarkup: '<link rel="canonical" href="https://lcsc.com/product-detail/C999999.html">' +
+        '<meta property="og:url" content="https://lcsc.com/product-detail/C888888.html">' +
+        '<script type="application/ld+json">{"@type":"Product","sku":"C777777"}</script>' });
+    expect(page.requestContext()).toMatchObject({ sourcePartNumber: "C106225", manufacturerPartNumber: null });
+    page.dom.window.document.body.innerHTML = "";
+    page.dom.reconfigure({ url: "https://lcsc.com/" });
+    expect(page.requestContext().provider).toBeNull();
   });
 });
 

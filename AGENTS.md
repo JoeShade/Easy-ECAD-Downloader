@@ -25,6 +25,9 @@ This repository is a compact browser extension that detects supported distributo
 
 ## Comments and explainers
 
+- Start every maintained code-bearing file with a concise responsibility explainer, including tests, Python/PowerShell helpers, HTML/CSS, workflows and executable configuration. Interpreter, runner and language prologues precede the explainer.
+- Explain domain rules, asynchronous ordering, browser lifecycle assumptions and other logic beyond basic variables, loops and conditionals beside the relevant code.
+- State comments affirmatively in terms of actual behavior, prerequisites, preserved properties and collaborating owners.
 - Add comments only when logic or data-shape handling is non-obvious.
 - Keep explainers for conversion rules, browser API boundaries, storage/download behavior, and preview-generation logic.
 - Avoid narration comments and cosmetic rewrites.
@@ -36,6 +39,7 @@ This repository is a compact browser extension that detects supported distributo
 - Prefer regression tests for bug fixes.
 - Use test-only harnesses, mocks, fixtures, and loaders instead of production refactors for testability.
 - Run `npm run lint` for JavaScript source or test changes.
+- The browser/KiCad QA harness, matrix campaigns and `qa:*` checks are optional developer tools, not commit or pull-request requirements. For harness work, developers can run `npm run qa:lint` and `npm run qa:smoke` after installing the pinned requirements in `tests/headless-qa/README.md`. Live QA runs require an explicit request.
 - Run targeted tests while iterating.
 - Run `npm run validate` before finalizing when Node/npm are available.
 
@@ -47,7 +51,8 @@ This repository is a compact browser extension that detects supported distributo
 
 ## Documentation expectations
 
-- Update `README.md` when setup, testing, capabilities, or operator-visible behavior changes.
+- Treat the root `README.md` as a fixed asset. Any edit, including content, formatting, links or automated rewrites, requires the user's explicit permission to change that file.
+- General requests for code review, maintenance, fixes or documentation updates do not grant permission to edit `README.md`. Record relevant changes in the other governing documents and flag proposed README updates for explicit approval.
 - Keep `docs/architecture-notes.md` short and implementation-focused.
 - Use `docs/deviations.md` only for live temporary mismatches between code and design.
 - Do not turn tracked docs into backlog, review scratch space, or speculative cleanup lists.
@@ -55,17 +60,19 @@ This repository is a compact browser extension that detects supported distributo
 ## Validation and self-review
 
 - Verify the touched behavior directly.
-- Run the relevant tests while iterating and the full suite before finalizing.
+- Run the relevant extension tests while iterating and `npm run validate` before finalizing; optional QA harness checks remain separate.
 - Do a self-review for correctness, architecture fit, documentation drift, and test coverage gaps.
 - Report assumptions, residual risks, and blocked work explicitly.
 
 ## Repository hygiene
 
 - Keep generated archives, scratch artifacts, and disposable outputs out of the tracked tree.
+- Keep QA matrix documents and campaign evidence untracked, normally in the sibling `../qa-run/` directory. The harness and matrix-management scripts remain tracked developer tooling.
 - Remove obsolete references when files or behaviors change.
 - Keep test harnesses and developer support code under `tests/` or other clearly developer-only locations.
 - Let the repo-hygiene tests enforce governance files, footer coverage, and documentation discipline.
 - Keep CI, linting, audit, and local validation scripts aligned.
+- Security text scans cover JavaScript modules/configuration, Python, PowerShell and TOML alongside the existing document/data formats.
 
 ## Source footer
 

@@ -2,9 +2,60 @@
 
 Notable changes are recorded here in reverse chronological order.
 
-## Unreleased
+## 1.1.0
 
-This section summarizes the current `Development` branch compared with `main` as reviewed on 2026-05-08.
+### Added
+
+- Added an opt-in Windows browser/KiCad QA harness with real extension popup acquisition, verified download inventories, isolated evidence, native KiCad 10 rendering and offline regression checks, plus a repository-local matrix execution skill.
+- Added `qa:auth -- --terminal` to open a dedicated credential console and gate full-matrix startup on successful entry, preserving the existing cache after cancellation or invalid input.
+- Added visible terminal entry and an encrypted Windows volatile-registry cache for browser QA SamacSys credentials, reused across runs until restart or user-hive unload, with `qa:auth` setup and clearing commands.
+
+### Changed
+
+- Made the QA harness and its offline checks optional developer tools: routine extension validation excludes harness tests, push/pull-request CI skips browser downloads, and QA lint/smoke checks have a manually triggered workflow. Kept test matrices and campaign evidence untracked with ignore rules for local copies; harness and matrix-management source remain tracked.
+- Switched browser QA to headed Chrome on a private Windows desktop, starting minimized and activating only within that desktop, with debugging-pipe continuity, owned process-tree cancellation and verified cleanup before temporary-profile deletion.
+- Aligned extension, npm package and lockfile release metadata at 1.1.0; separated the existing 1.0.0 changelog history from this release and refreshed the design, security and contribution documentation.
+
+### Fixed
+
+- Fixed issue #18: read LCSC manufacturer part numbers from plain product-summary tables anchored by their own complete LCSC catalogue ID, excluding hidden, nested, recommendation and unrelated-product fields.
+- Fixed issue #15: preserve internal hyphens in Farnell, element14 and Newark manufacturer names and part numbers when reading product descriptions; malformed percent escapes in product paths now allow other metadata fallbacks.
+- Preserved non-plated footprint holes, normalized custom-pad whitespace, kept independent symbol path subpaths separate, and accepted SVG signed/exponent numeric syntax.
+- Corrected footprint model offsets to millimetres, independently verified with KiCad 10; WRL vertex scaling remains separate. Preserved OBJ faces with default materials and relative indices, and rejected malformed geometry.
+- Kept settings saves and popup requests waiting for the initial stored snapshot, surfaced storage-read failures, and kept reload guidance accessible while the settings form is inert.
+- Rejected control characters and portable-filename-invalid punctuation in library roots before browser downloads can rename or reject the requested layout.
+- Merged compact and multi-symbol KiCad libraries structurally, preserving existing definitions and distinguishing nested units from root-symbol names.
+- Blocked browser QA assembly rendering when any referenced model is absent from the verified download inventory, retaining outstanding inspection evidence.
+- Serialized pending popup exports and settings saves; restored remembered settings after failed session-secret migration and retained a clear partial-save error if restoration fails.
+- Serialized shared symbol-library updates, surfaced storage failures, preserved ZIP form queries and used one string-aware footprint model editor across providers.
+- Escaped KiCad strings and SVG paths, normalized library identifiers, corrected footprint graphic layers/rectangle units, symbol polyline closure and circular-arc sweep/radius handling, and bounded large OBJ conversion with valid default materials.
+- Restored compact and comma-separated absolute M/L/Z symbol paths through the shared parser; removed unused popup settings selectors after verifying the separate options-page stylesheet owns those controls.
+- Rejected overflowing QA timer budgets, aligned Python secret redaction and preserved primary private-desktop startup errors during cleanup.
+- Extended hygiene coverage to local matrix scripts and additional workflow files, explained matrix publication/locking, and allowed live deviations with explicit requirements, observed behavior and closure conditions.
+- Hardened QA evidence persistence, failure exits, popup-loss accounting, post-browser download cleanup, malformed CAD inspection records, and renderer inventory verification; added regression coverage and Python lint/smoke checks in CI.
+- Fixed issue #16's missing EasyEDA symbol preview paths, restoring captured diode bodies and LED arrowheads while preserving filled and hollow `PT`/`PL`/`PG` graphics without changing CAD exports.
+- Fixed issue #17's EasyEDA model-selection boundary: wait for ID-scoped browser completion, reference delivered STEP/WRL basenames after renames, fall back from failed WRL downloads, and omit references when model completion or the requested directory layout cannot be verified. Added bounded lifecycle handling and regression coverage for all eight reported names.
+- Recognized the LCSC `MPN` label in supported product fields for issue #14, preserving exact manufacturer identifiers, catalogue association checks and exports when MPN metadata is unavailable.
+- Fixed issue #13: resolve JLCPCB/LCSC product identity from supported product routes and complete labelled fields, including modern wrapped definition lists. Conflicting identities now disable previews and export; incidental page text and manufacturer-part substrings no longer drive EasyEDA lookups.
+- Corrected browser QA download accounting for merged symbol-library overwrites, complete STEP/WRL inspection inventories, circle/arc bounds, back-side views, structured redaction, identifier comparisons, runtime diagnostics, and incomplete evidence coverage.
+
+### Security
+
+- Updated jsdom's development-only `undici` dependency from 7.30.0 to 7.30.1 to address [EventSource memory exhaustion](https://github.com/advisories/GHSA-4qv8-2p9j-2685), [subresource integrity bypass](https://github.com/advisories/GHSA-f72v-6w45-q472) and [content-encoding denial of service](https://github.com/advisories/GHSA-xjj6-f33q-929c). The dependency audit reports no vulnerabilities after the update.
+- Rejected redirects from the configured Firefox relay endpoint to protect upstream credentials carried in its JSON body.
+- Validated initial SamacSys request targets and every relay redirect hop against approved HTTPS destinations; direct Chrome redirect enforcement remains an open limitation; corrected the relay guide's secret name and Bearer-token setup.
+- Validated ZIP structure, checksums and expanded sizes with a 256 MiB ceiling; malformed and unsupported archives now fail before CAD export.
+- Expanded explainer coverage to executable tooling and security scans to Python, PowerShell and module/configuration text.
+
+### Known limitations
+
+- Direct Chrome SamacSys preview/ZIP redirects can consume responses outside the initial host allowlist; see [the open deviation](docs/deviations.md).
+- EasyEDA CAD symbol export still has fidelity limitations for noncircular ellipses, curved/relative paths and unequal-radii arcs. SamacSys multi-asset archives retain first-footprint/first-model association assumptions; see [the design](systemDesign.md).
+- Live Firefox integration tests and automated store delivery are unavailable; see [contribution and delivery guidance](contributing.md#ci-and-delivery-requirements).
+
+## 1.0.0
+
+The model-offset wording below describes the 1.0.0 implementation; 1.1.0 corrects the offset units to millimetres.
 
 ### Added
 

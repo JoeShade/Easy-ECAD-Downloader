@@ -13,17 +13,15 @@ import {
   angleToKi,
   computeArc,
   convertToMm,
+  escapeKiCadString,
   fpToKi,
-  rotate,
+  parseSvgPath,
+  quoteKiCadAtom,
   toNumber
 } from "./shared.js";
 
-const KI_3D_UNIT_MM = 2.54;
-
-function mmToKi3dUnit(value) {
-  return value / KI_3D_UNIT_MM;
-}
-
+// A nonzero holeLength denotes a slot. Its longer dimension follows the pad's
+// longer local axis, and KiCad's oval drill lists local X then local Y size.
 function drillToKi(holeRadius, holeLength, padHeight, padWidth) {
   if (holeRadius > 0 && holeLength && holeLength !== 0) {
     const maxDistanceHole = Math.max(holeRadius * 2, holeLength);
@@ -41,6 +39,9 @@ function drillToKi(holeRadius, holeLength, padHeight, padWidth) {
   return "";
 }
 
+// Convert named scalar lengths once. Raw point/path records retain source units
+// until serialization. KiCad's model offset token also stores millimetres;
+// obj_to_wrl.js owns the separate WRL vertex scale of 2.54 mm per unit.
 function convertFootprintToKiCad(footprint) {
   const bbox = {
     x: convertToMm(footprint.bbox.x),
@@ -85,7 +86,8 @@ function convertFootprintToKiCad(footprint) {
     x: convertToMm(rect.x),
     y: convertToMm(rect.y),
     width: convertToMm(rect.width),
-    height: convertToMm(rect.height)
+    height: convertToMm(rect.height),
+    strokeWidth: convertToMm(rect.strokeWidth)
   }));
   const texts = footprint.texts.map((text) => ({
     ...text,
@@ -99,9 +101,9 @@ function convertFootprintToKiCad(footprint) {
     ? {
         ...footprint.model3d,
         translation: {
-          x: mmToKi3dUnit(convertToMm(footprint.model3d.translation.x) - bbox.x),
-          y: mmToKi3dUnit(-(convertToMm(footprint.model3d.translation.y) - bbox.y)),
-          z: mmToKi3dUnit(convertToMm(footprint.model3d.translation.z))
+          x: convertToMm(footprint.model3d.translation.x) - bbox.x,
+          y: -(convertToMm(footprint.model3d.translation.y) - bbox.y),
+          z: convertToMm(footprint.model3d.translation.z)
         },
         rotation: {
           x: (360 - toNumber(footprint.model3d.rotation.x)) % 360,
@@ -126,12 +128,15 @@ function convertFootprintToKiCad(footprint) {
   };
 }
 
+// Emit the legacy footprint syntax accepted by KiCad with graphics relative to
+// the footprint origin. String replacements use callbacks for upstream text so
+// literal '$&' retains its characters. Insert upstream text last so embedded
+// strings such as '{posX}' remain text after all template markers are resolved.
 function exportKiCadFootprint(kiFootprint, model3dPath) {
   let output = "";
   output += KI_FOOTPRINT_TEMPLATES.moduleInfo
-    .replace("{packageLib}", "easyeda2kicad")
-    .replace("{packageName}", kiFootprint.info.name)
-    .replace("{edit}", "5DC5F6A4");
+    .replace("{edit}", "5DC5F6A4")
+    .replace("{packageName}", () => quoteKiCadAtom(`easyeda2kicad:${kiFootprint.info.name}`));
 
   if (kiFootprint.info.fpType) {
     output += KI_FOOTPRINT_TEMPLATES.fpType.replace(
@@ -151,9 +156,9 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
     .replace("{posX}", "0")
     .replace("{posY}", (yLow - 4).toFixed(2));
   output += KI_FOOTPRINT_TEMPLATES.value
-    .replace("{packageName}", kiFootprint.info.name)
     .replace("{posX}", "0")
-    .replace("{posY}", (yHigh + 4).toFixed(2));
+    .replace("{posY}", (yHigh + 4).toFixed(2))
+    .replace("{packageName}", () => quoteKiCadAtom(kiFootprint.info.name));
   output += KI_FOOTPRINT_TEMPLATES.fabRef;
 
   for (const track of kiFootprint.tracks) {
@@ -164,7 +169,7 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
         .replace("{startY}", (points[i + 1] - kiFootprint.bbox.y).toFixed(2))
         .replace("{endX}", (points[i + 2] - kiFootprint.bbox.x).toFixed(2))
         .replace("{endY}", (points[i + 3] - kiFootprint.bbox.y).toFixed(2))
-        .replace("{layers}", KI_PAD_LAYER[track.layerId] || "F.Fab")
+        .replace("{layers}", KI_LAYERS[track.layerId] || "F.Fab")
         .replace("{strokeWidth}", Math.max(track.strokeWidth, 0.01).toFixed(2));
     }
   }
@@ -186,7 +191,7 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
         .replace("{startY}", sy.toFixed(2))
         .replace("{endX}", ex.toFixed(2))
         .replace("{endY}", ey.toFixed(2))
-        .replace("{layers}", KI_PAD_LAYER[rect.layerId] || "F.Fab")
+        .replace("{layers}", KI_LAYERS[rect.layerId] || "F.Fab")
         .replace("{strokeWidth}", Math.max(rect.strokeWidth, 0.01).toFixed(2));
     }
   }
@@ -199,7 +204,9 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
     let polygon = "";
 
     if (shape === "custom") {
-      const points = pad.points.split(" ").map(fpToKi);
+      // EasyEDA polygon pad points are absolute drawing coordinates. KiCad pad
+      // primitives are local to their pad anchor, with the rotation already in the points.
+      const points = pad.points.trim().split(/\s+/).map(fpToKi);
       if (points.length) {
         width = 0.005;
         height = 0.005;
@@ -229,14 +236,16 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
       width
     );
 
-    let number = pad.number || "";
+    // Mechanical through holes retain their geometry and copper clearances;
+    // KiCad identifies them with np_thru_hole and an empty electrical number.
+    const isMechanicalHole = pad.holeRadius > 0 && !pad.isPlated;
+    let number = isMechanicalHole ? "" : pad.number || "";
     if (number.includes("(") && number.includes(")")) {
       number = number.split("(")[1].split(")")[0];
     }
 
     output += KI_FOOTPRINT_TEMPLATES.pad
-      .replace("{number}", number)
-      .replace("{type}", pad.holeRadius > 0 ? "thru_hole" : "smd")
+      .replace("{type}", isMechanicalHole ? "np_thru_hole" : pad.holeRadius > 0 ? "thru_hole" : "smd")
       .replace("{shape}", shape)
       .replace("{posX}", (pad.centerX - kiFootprint.bbox.x).toFixed(2))
       .replace("{posY}", (pad.centerY - kiFootprint.bbox.y).toFixed(2))
@@ -245,7 +254,8 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
       .replace("{height}", height.toFixed(2))
       .replace("{layers}", layers)
       .replace("{drill}", drill ? ` ${drill}` : "")
-      .replace("{polygon}", polygon);
+      .replace("{polygon}", polygon)
+      .replace("{number}", () => quoteKiCadAtom(number));
   }
 
   for (const hole of kiFootprint.holes) {
@@ -277,35 +287,30 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
   }
 
   for (const arc of kiFootprint.arcs) {
-    const arcPath = arc.path.replace(/,/g, " ").replace("M ", "M").replace("A ", "A");
-    const [startXRaw, startYRaw] = arcPath.split("A")[0].slice(1).split(" ", 2);
-    const startX = fpToKi(startXRaw) - kiFootprint.bbox.x;
-    const startY = fpToKi(startYRaw) - kiFootprint.bbox.y;
-    const arcParameters = arcPath.split("A")[1].replace(/\s+/g, " ").trim();
-    const [
-      svgRx,
-      svgRy,
-      xAxisRotation,
-      largeArc,
-      sweep,
-      endXRaw,
-      endYRaw
-    ] = arcParameters.split(" ");
-    const rotated = rotate(fpToKi(svgRx), fpToKi(svgRy), 0);
-    const endX = fpToKi(endXRaw) - kiFootprint.bbox.x;
-    const endY = fpToKi(endYRaw) - kiFootprint.bbox.y;
+    // EasyEDA describes an SVG endpoint arc. Legacy KiCad footprints instead
+    // store its center, final endpoint, and the signed angle around that center.
+    const [move, ellipseArc] = parseSvgPath(arc.path);
+    if (move?.type !== "M" || ellipseArc?.type !== "A") {
+      throw new Error("Unsupported footprint arc path: expected absolute M and A commands");
+    }
+    const startX = fpToKi(move.startX) - kiFootprint.bbox.x;
+    const startY = fpToKi(move.startY) - kiFootprint.bbox.y;
+    const radiusX = fpToKi(ellipseArc.radiusX);
+    const radiusY = fpToKi(ellipseArc.radiusY);
+    const endX = fpToKi(ellipseArc.endX) - kiFootprint.bbox.x;
+    const endY = fpToKi(ellipseArc.endY) - kiFootprint.bbox.y;
     let extent = 0;
     let cx = 0;
     let cy = 0;
-    if (rotated.y !== 0) {
+    if (radiusY !== 0) {
       const arcInfo = computeArc(
         startX,
         startY,
-        rotated.x,
-        rotated.y,
-        toNumber(xAxisRotation),
-        largeArc === "1",
-        sweep === "1",
+        radiusX,
+        radiusY,
+        ellipseArc.xAxisRotation,
+        ellipseArc.flagLargeArc,
+        ellipseArc.flagSweep,
         endX,
         endY
       );
@@ -331,7 +336,6 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
     }
     const mirror = layers.startsWith("B") ? " mirror" : "";
     output += KI_FOOTPRINT_TEMPLATES.text
-      .replace("{text}", text.text)
       .replace("{posX}", (text.centerX - kiFootprint.bbox.x).toFixed(2))
       .replace("{posY}", (text.centerY - kiFootprint.bbox.y).toFixed(2))
       .replace("{orientation}", angleToKi(text.rotation).toFixed(2))
@@ -339,18 +343,19 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
       .replace("{display}", text.isDisplayed === false ? " hide" : "")
       .replace(/{fontSize}/g, Math.max(text.fontSize, 1).toFixed(2))
       .replace("{thickness}", Math.max(text.strokeWidth, 0.01).toFixed(2))
-      .replace("{mirror}", mirror);
+      .replace("{mirror}", mirror)
+      .replace("{text}", () => quoteKiCadAtom(text.text));
   }
 
   if (kiFootprint.model3d && model3dPath) {
     output += KI_FOOTPRINT_TEMPLATES.model3d
-      .replace("{file3d}", `${model3dPath}/${kiFootprint.model3d.name}.wrl`)
       .replace("{posX}", kiFootprint.model3d.translation.x.toFixed(3))
       .replace("{posY}", kiFootprint.model3d.translation.y.toFixed(3))
       .replace("{posZ}", kiFootprint.model3d.translation.z.toFixed(3))
       .replace("{rotX}", kiFootprint.model3d.rotation.x.toFixed(0))
       .replace("{rotY}", kiFootprint.model3d.rotation.y.toFixed(0))
-      .replace("{rotZ}", kiFootprint.model3d.rotation.z.toFixed(0));
+      .replace("{rotZ}", kiFootprint.model3d.rotation.z.toFixed(0))
+      .replace("{file3d}", () => escapeKiCadString(`${model3dPath}/${kiFootprint.model3d.name}.wrl`));
   }
 
   output += ")";

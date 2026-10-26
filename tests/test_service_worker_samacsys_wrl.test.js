@@ -1,7 +1,7 @@
 /*
  * These tests cover SamacSys WRL-only export edge cases. They live separately
- * from the main direct-flow suite so targeted regressions do not push the
- * broader SamacSys test file past the repository line-count limit.
+ * from the main direct-flow suite to keep both focused files within the
+ * repository line-count limit.
  */
 
 import { describe, expect, it, vi } from "vitest";

@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This document describes the current implemented design of the Easy ECAD Downloader browser extension.
+This document describes the implemented design of Easy ECAD Downloader 1.1.0. Known limitations are recorded below and in [docs/deviations.md](docs/deviations.md).
 
 The extension supports three provider flows:
 
@@ -26,12 +26,14 @@ The repository remains intentionally compact. If code and design diverge, update
 
 ### 2.2 Explicit non-goals
 
-The current repository does not implement:
+The production extension does not implement:
 
 - browser automation outside the popup/content-script/service-worker model
-- end-to-end browser-run integration tests in real Chrome or Firefox
+- end-to-end browser-run integration tests in real Firefox
 - a project-hosted proxy or cloud backend for Mouser / SamacSys Firefox support
 - a broader application-layer architecture beyond the existing file split
+
+Developer-only Chrome/KiCad automation lives under `tests/headless-qa/`; real Firefox integration tests remain unavailable.
 
 ## 3. Supported contexts and assumptions
 
@@ -54,6 +56,7 @@ The current repository does not implement:
 - Firefox relay mode can forward an upstream SamacSys `Authorization` header for ZIP endpoints that rely on HTTP Basic auth instead of cookies alone.
 - The Manifest V3 background is declared for both Chrome and Firefox: Chrome uses `background.service_worker`, while Firefox uses the background-document fallback from `background.scripts`. This combined manifest relies on Firefox 121 or newer.
 - The configurable library download root must remain relative to the browser's Downloads directory.
+- Library roots reject traversal, control characters and Windows-invalid filename punctuation, while retaining nested folders, Unicode and ordinary spaces.
 
 ## 4. Repository architecture
 
@@ -74,7 +77,7 @@ flowchart LR
     zipReader["SamacSys ZIP reader\nsrc/vendor/zip_reader.js"]
     downloads["Browser downloads\nchrome.downloads"]
     easyeda["EasyEDA APIs\nCAD, STEP, OBJ, datasheet URLs"]
-    samacsys["SamacSys / Component Search Engine\nentry, preview, ZIP, WRL"]
+    samacsys["SamacSys / Component Search Engine\nentry, preview, ZIP"]
 
     user --> productPage
     user --> popup
@@ -100,7 +103,7 @@ flowchart LR
 
 Owns page inspection only:
 
-- detect EasyEDA/LCSC identifiers from definition lists, known tables, and page text
+- resolve EasyEDA/LCSC identifiers from supported product URLs and complete labelled product fields, rejecting conflicting identities
 - detect Mouser SamacSys ECAD availability from the ECAD button
 - detect Farnell, element14, or Newark SamacSys ECAD availability from the `Supply Frame Models Link`
 - read provider-specific source part metadata from the page DOM
@@ -122,6 +125,8 @@ Owns popup UI state and user interaction:
 - gate downloads based on provider support and checkbox selection
 - open the dedicated settings page from the popup settings button
 - send `EXPORT_PART` requests to the service worker
+- keep Download disabled until the pending export receives its worker response, including while selections change
+- wait for saved settings before preview/export requests and keep exports disabled after a storage-read failure
 
 It remains the UI-facing boundary. It does not own fetch, archive extraction, or conversion logic.
 
@@ -137,6 +142,8 @@ Owns persistent settings UI:
 - let users temporarily show or hide typed password and token values without changing stored settings
 - expose Firefox-only helper-service auth and relay URL inside a hidden-by-default advanced Firefox settings menu
 - normalize settings through `src/core/settings.js`
+- suspend form interaction during Save and restore previous local settings if session-secret migration fails; failed restoration reports a partial save requiring reload
+- keep the form inert until its initial local/session snapshot loads; failed reads require reload and preserve saved values, with status messages outside the inert form
 
 It does not request part contexts, previews, exports, or downloads.
 
@@ -183,6 +190,14 @@ Those modules own:
 - KiCad footprint text generation
 - OBJ-to-WRL conversion
 
+KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use a single mapped layer and convert source widths to millimetres. Circular symbol arcs derive their midpoint from the effective SVG radius and the symbol coordinate system's sweep direction.
+
+Symbol PT export accepts absolute M/L/Z with spaces, commas or attached command letters through the shared path parser; previews retain broader native SVG support.
+
+Absolute PT subpaths remain separate; repeated coordinate pairs, adjacent signed numbers and exponent notation follow SVG numeric syntax. Footprint pads preserve explicit non-plated-hole flags and normalize arbitrary whitespace in custom polygon coordinates. OBJ conversion supports default-material faces and negative indices relative to the vertex list at each face, and rejects invalid geometry before WRL output.
+
+Remaining symbol-export fidelity defects include omitted noncircular ellipses and curved/relative PT paths, plus circular approximation of unequal-radii arc records. Native SVG previews accept broader geometry, so preview appearance alone does not establish exported-symbol fidelity. These remain unresolved review findings.
+
 Mouser parts do not flow through this converter for symbol or footprint generation because the upstream ZIP already contains KiCad assets.
 
 ### 4.8 `src/vendor/zip_reader.js`
@@ -192,6 +207,7 @@ Owns small runtime archive extraction support:
 - ZIP central-directory parsing
 - stored-entry reads
 - deflate-entry reads through runtime decompression primitives
+- classic single-disk ZIP header, CRC-32 and expanded-length validation, with a 256 MiB total expansion ceiling
 
 It exists so the service worker can extract the KiCad subtree from the SamacSys ZIP without adding a build step.
 
@@ -205,6 +221,18 @@ The test suite remains the primary regression net for:
 - EasyEDA conversion behavior
 - repository governance and footer discipline
 
+`tests/headless-qa/` adds an opt-in Windows integration harness. Pinned Puppeteer and its headed Chrome for Testing binary load the actual unpacked extension in an isolated profile on a private Win32 desktop, activate the product tab there, and open its real action popup.
+
+Chrome starts without an initial window; its first window is explicitly created minimized/unfocused, then restored only on that private desktop for popup and screenshot rendering. The input desktop is never switched. A standard-library Python launcher forwards the inherited CDP pipe descriptors and starts Chrome suspended until assigned to a kill-on-close Windows job. No debugging port, normal-profile session, foreground fallback or headless fallback is used. The configured QA Python interpreter runs both this launcher and rendering helpers.
+
+The harness records independent page fields, real content-script context, popup preview states and completed browser downloads in atomic per-stage evidence. KiCad 10 CLI and Python render all symbol/footprint entries and temporary inspection boards with unchanged model references; a known-good relative-path fixture calibrates assembly rendering. Generated assets and evidence remain in gitignored output. Each browser run creates separate short profile and download directories under the system temporary directory, avoiding extension-storage failures and evidence-path-induced filename truncation. Final browser filenames and bytes are preserved in the run's downloads tree with size and SHA-256 checks; browser events retain their actual acquisition destinations. The launcher exits after Chrome and its descendants stop and the private desktop is released. An atomic cleanup receipt must confirm this before temporary-directory cleanup; missing confirmation retains the directories and records BLOCKED. Terminal cancellation requests owned-job termination; abrupt launcher exit also terminates the job. Failed preservation or unaccounted partial files retain the acquisition directory for recovery. These tools do not change production behavior or repair export defects.
+
+Harness schema 2 distinguishes historical download events from verified final assets, including intentional grouped-symbol-library overwrites and known symbol-entry retention. Page/detection/popup identifiers are compared separately, and early bounded runtime diagnostics keep unknown causes distinct from explicit access blockers. Every downloaded model is inventoried; unreferenced models use labelled derived importer fixtures without asserting association or alignment. Native board bounds include circle/arc extents and rotated pads. Legacy arc syntax is translated only in embedded fixture copies for modern board compatibility, with normalization metadata; zero-radius point arcs are retained and reported without geometry repair. Model references and transforms remain unchanged. Model-sized derived outlines and bounded camera fitting prevent fixed-size fixtures from silently clipping large models; fitted images still require visual assessment. Back-side layer views are included when relevant, and coverage records outstanding inspections separately from completed execution. Structural redaction applies before evidence serialization; downloaded originals remain unchanged. Unauthenticated isolated profiles do not import sessions or bypass provider restrictions.
+
+Browser QA remains unauthenticated by default. Opt-in `--samacsys-login` reuses a checkout-scoped Windows cache or reads visible username/password input from an interactive terminal when empty. `qa:auth` populates this cache independently; `qa:auth -- --clear` discards it. Before a new full matrix, `qa:auth -- --terminal` opens a separate visible credential console and waits for a successful exit before baseline/preflight/case execution. Its child `--prompt` mode requests a fresh pair; valid submission replaces the cache, while cancellation or invalid input preserves the old pair and blocks startup. A PowerShell launcher creates the user console with unredirected input/output, observes its exit status, and closes it on parent cancellation/EOF or the 15-minute setup timeout. The parent captures no credential-console transcript. Subsequent SamacSys rows use `--samacsys-login`; narrow/default browser runs remain unauthenticated unless opted in. A private-pipe PowerShell helper encrypts both fields with current-user DPAPI in fresh GUID-named volatile registry keys, serializes access with a named mutex and never logs responses. Volatile payloads survive terminal/browser closure and failed runs but clear on Windows restart or user-hive unload, which can occur on sign-out. Fresh secret keys prevent accidental use of an existing nonvolatile key. No secret arguments, environment variables, files or normal-profile imports are accepted. Each run provisions only trusted-context `chrome.storage.session`, forcing the existing remember flag off. The production settings/auth path consumes these values unchanged. Metadata records configuration status rather than values or login success. Exact-value redaction covers runtime echoes, including common encoded forms. Browser cleanup and per-run reference disposal leave the Windows cache available to subsequent runs. Distributor login and navigation restrictions remain separate from SamacSys authentication.
+
+Product-navigation transport errors block the browser component workflow before detection or export; they retain an unknown cause rather than being attributed to SamacSys or credentials. The harness also recognizes the production SamacSys sign-in message and entry/preview/ZIP HTTP 401, 403 and 429 errors as external blockers. A blank-page environment preflight and credential provisioning do not establish distributor-page access or successful upstream authentication.
+
 ## 5. Core data flow
 
 ### 5.1 Detect the current part
@@ -215,7 +243,7 @@ The test suite remains the primary regression net for:
   - provider `easyedaLcsc`
   - source label `LCSC part`
   - source part number equal to the detected LCSC id
-  - manufacturer part number when the page exposes `Mfr. Part #`
+  - manufacturer part number when the page exposes `Mfr. Part #` or `MPN`
   - lookup metadata containing the LCSC id
 - On Mouser pages, the content script returns:
   - provider `mouserSamacsys`
@@ -230,13 +258,24 @@ The test suite remains the primary regression net for:
   - manufacturer part number from the SamacSys link metadata or page text
   - lookup metadata containing manufacturer name and a reconstructed SamacSys entry URL
 
+EasyEDA identity is recomputed for each request from the current HTTP(S) URL and labelled product fields. URL evidence requires an apex or `www` JLCPCB/LCSC host, no credentials or nonstandard port, and `/partdetail/<slug>/C<digits>` or `/product-detail/C<digits>.html` respectively. Routes are case-insensitive with one optional trailing slash; IDs remain strings with uppercase `C` and at least three digits. Slugs, queries, fragments, canonical links and JSON-LD are not identity sources.
+
+The EasyEDA-only field reader accepts complete values under exact normalized `JLCPCB Part #` or `LCSC Part #` labels. It reads adjacent `dt`/`dd` pairs, including modern div-wrapped pairs, and two-cell `th`/`td` rows in `table.tableInfoWrap`, within `main` or otherwise the body. On LCSC, plain product-summary tables also qualify when their own accepted rows contain an exact `LCSC Part #` label and a complete catalogue ID. Visibility and ownership exclusions apply before that qualification; unanchored tables and nested-table rows cannot supply manufacturer metadata. Hidden/inert, nested, navigation/footer/aside, recommendation/related and differently linked product fields are excluded. Invalid fields do not suppress later valid ones. Shared SamacSys readers are unchanged.
+
+One distinct ID is accepted; duplicates agree and conflicting URL/field IDs return the existing empty context, disabling previews and export. The whole-page text fallback is removed. Manufacturer metadata uses only exact normalized `Mfr. Part #` (including `MFR.Part #`) and `MPN` labels in those same supported fields. Values remain strings with punctuation, case, leading zeros and internal spaces preserved; repeated agreeing MPNs are deduplicated and conflicting MPNs are omitted. URL-derived contexts require an agreeing catalogue field before attaching an MPN. An unavailable MPN does not block previews or export for a valid catalogue identity; EasyEDA lookups continue to use the LCSC id. No identity is cached, and no network validation, observers or retries are added.
+
+Farnell-family description parsing uses whitespace-delimited hyphens as field separators, preserving internal hyphens in manufacturer names and part numbers. Malformed percent escapes in product paths leave the other page-field and ECAD-link fallbacks available.
+
 ### 5.2 Request previews
 
 - The popup asks the service worker for `GET_PART_PREVIEWS`.
 - EasyEDA-backed pages:
   - fetch the EasyEDA CAD payload
   - synthesize symbol and footprint SVG previews
+  - render symbol `PT` records as escaped native SVG paths, preserving source coordinates and draw order alongside pins, rectangles, `PL`/`PG`, circles and arcs
+  - keep symbol `PT`/`PL`/`PG` paint local to each shape: hex and basic named solid colors use the dark foreground, white uses the preview background, and absent, `none`, transparent or unsupported paints remain unfilled; existing stroke styling stays monochrome
   - derive datasheet availability from the payload
+  - escape SVG path data and coerce numeric bounds before adding margins
 - Mouser, Farnell, element14, and Newark pages:
   - fetch the SamacSys entry URL
   - follow the part-page redirect and parse the ZIP form and preview token
@@ -255,17 +294,23 @@ The test suite remains the primary regression net for:
   - loose-file downloads when `downloadIndividually` is `true`
   - KiCad-style library structure when `downloadIndividually` is `false`
 - Library-mode symbol exports merge into a stored symbol library keyed by the resolved library root.
-- Footprint model references are reconciled after 3D export attempts finish:
-  - loose-file footprints reference `${KIPRJMOD}/<modelFilename>` when a model was exported
-  - library-mode footprints reference `../<libraryName>.3dshapes/<modelFilename>` when a model was exported
-  - stale footprint `(model ...)` blocks are removed when no selected 3D model artifact is exported
-- EasyEDA OBJ-to-WRL conversion recenters model geometry in X/Y, bottom-aligns the model in Z, and writes footprint model offsets in KiCad 3D units so the WRL aligns with the generated footprint.
+- Symbol-library merging scans complete root-symbol blocks, including compact and multi-symbol input, preserving existing definitions and distinguishing nested units from separate symbols.
+- EasyEDA model writes opt into a terminal browser receipt, associated with the exact download ID and requested path. Ordinary artifact writers still return a count of started downloads; `downloadCount` includes acknowledged starts that subsequently fail. The popup's `Download started` status retains that meaning.
+- `src/core/downloads.js` owns browser calls and Blob cleanup; `src/core/download_receipts.js` subscribes before querying the ID, requeries snapshots invalidated by events, and polls every second for missed events. Each model has a 60-second total verification budget, including a start callback bounded to 10 seconds. Missing items, query failures and timeouts produce unverified receipts and request cancellation. Blob URLs are released on terminal state or confirmed cancellation, never merely on timeout.
+- Polling extension APIs keeps the active MV3 request from becoming idle. Runtime messaging returns `true` and defers its reply until model selection finishes. Worker/browser termination abandons the request; no in-memory promise or receipt is treated as durable, and restarted workers do not resume abandoned footprint generation. No permanent receipt state is stored.
+- Footprint model references use only a successfully completed model's observed basename, preferring WRL over STEP. A failed/unverified WRL leaves a valid STEP selected. HTTP/fetch, browser-start, terminal interruption, verification and incompatible-location warnings remain distinct; optional model failures allow other selected assets to proceed.
+- Path validation requires an absolute browser filename, no traversal/control characters, an unchanged observed model parent, the complete requested library-directory suffix at segment boundaries, and a consistent inferred Downloads root across selected model receipts. Drive, UNC and POSIX paths are handled without embedding them in portable output. Counter suffixes and truncation are retained; no prefix guessing, global filename search or overwrite policy is added.
+- Portable paths retain the existing layout contract: library footprints use `../<libraryName>.3dshapes/<deliveredBasename>`; loose files use `${KIPRJMOD}/<deliveredBasename>` and must be placed together in the project. The Downloads API does not expose the default root independently. A single already-redirected initial path cannot establish that root; individual Save As overrides, changing the root during an export, or subsequent file moves are outside the verified layout. Dependent footprints retain ordinary started-only download semantics; their final destination is not independently verified.
+- Rewriting escapes KiCad strings and changes only the first existing model-path token, preserving transforms, geometry and existing multiple-block behavior. When no selected model has a usable receipt, all stale `(model ...)` blocks are removed.
+- EasyEDA OBJ-to-WRL conversion recenters model geometry in X/Y and bottom-aligns the model in Z. Footprint model offsets use millimetres; WRL geometry separately uses KiCad's 2.54 mm per WRL unit convention.
 - Library-mode datasheet exports are written under `<libraryRoot>/datasheets/`.
+- EasyEDA symbol export still has fidelity limitations for noncircular ellipses, curved/relative `PT` paths and unequal-radii arcs. Native SVG previews support broader path geometry than CAD export, so preview appearance alone does not establish exported-symbol fidelity.
 
 ### 5.4 Export SamacSys distributor parts
 
 - The service worker fetches the SamacSys entry URL and resolves the part page.
 - In Firefox with a configured relay, the service worker sends those SamacSys HTTP requests through the relay instead of fetching upstream directly.
+- The configured relay URL must be the final endpoint: relay transport rejects redirects to preserve the destination of credential-bearing JSON.
 - In Firefox with a configured relay, the service worker also reads the matching upstream cookies through `chrome.cookies` and forwards them with those proxied requests.
 - For authenticated ZIP flows that use HTTP Basic auth, the service worker resolves upstream SamacSys `Authorization` from the shared precedence and:
   - on Chrome direct requests, retries one ZIP request with that auth after an initial `401`
@@ -280,6 +325,9 @@ The test suite remains the primary regression net for:
   - `KiCad/*.kicad_mod`
   - `3D/*.stp` and `3D/*.step`
   - optional `3D/*.wrl`
+- Upstream entry, metadata, preview and ZIP destinations require HTTPS on `componentsearchengine.com` or its subdomains at the standard port, with empty URL credentials. The relay example validates each redirect and clears forwarded credentials on origin changes.
+- Direct Chrome fetches validate initial targets and the final metadata URL, but automatic preview/ZIP redirects can still consume responses outside that host rule. [docs/deviations.md](docs/deviations.md) records this open enforcement gap.
+- ZIP extraction verifies directory/header/data bounds, declared lengths and CRC-32, and limits total expanded bytes to 256 MiB. Encrypted, multi-disk and ZIP64 metadata produce explicit unsupported-format errors.
 - Loose-file mode downloads the extracted files directly into Downloads.
 - Library mode repackages the extracted assets into the current KiCad structure:
   - symbol library merge into `<libraryRoot>/<libraryName>.kicad_sym`
@@ -289,6 +337,7 @@ The test suite remains the primary regression net for:
   - the symbol `Footprint` property to `<libraryName>:<footprintName>`
   - the footprint `(model ...)` path to `../<libraryName>.3dshapes/<modelFilename>`
 - When 3D export is selected, the worker exports STEP models and any WRL files already present in the SamacSys ZIP without probing extra remote WRL endpoints.
+- Library rewriting retains first-footprint/first-model association assumptions for archives with multiple assets; arbitrary symbol/footprint/model pairing is not independently resolved.
 
 ## 6. Storage and settings behavior
 
@@ -309,6 +358,7 @@ The test suite remains the primary regression net for:
 - If a remember-on-this-device box is checked, the corresponding helper token or SamacSys username/password is stored in `chrome.storage.local` instead.
 - `chrome.storage.local` also stores accumulated symbol library text used for append-style symbol exports in library mode.
 - Stored symbol-library content is keyed by the resolved library root so separate library folders keep separate merged symbol libraries.
+- Read/merge/save/download-start sequences serialize per worker/browser and library key. Storage failures propagate to the export response; download completion retains the receipt semantics described in section 5.3.
 
 ## 7. Error and warning handling
 
@@ -344,7 +394,7 @@ The test suite remains the primary regression net for:
 - SamacSys distributor loose-file symbol output keeps the extracted `.kicad_sym` filename from the ZIP.
 - Footprint output uses the extracted or generated `.kicad_mod` filename.
 - SamacSys distributor footprint library-mode downloads rewrite the model path into the library `.3dshapes` directory.
-- EasyEDA footprint downloads rewrite the first KiCad `(model ...)` path to the exported STEP or WRL artifact, preferring WRL when both are produced, and remove stale model blocks when no model artifact is exported.
+- EasyEDA footprint downloads rewrite the first KiCad `(model ...)` path to the delivered basename from a usable completed STEP or WRL receipt, preferring WRL, and remove stale model blocks when neither receipt is usable within the portable layout.
 - EasyEDA datasheet output uses a sanitized base name plus `-datasheet` and the detected extension. In library mode it is saved under `<libraryRoot>/datasheets/`.
 - The library root name defaults to `easyECADDownloader` and can be changed to another Downloads-relative folder for library mode.
 
@@ -352,9 +402,15 @@ The test suite remains the primary regression net for:
 
 - `src/kicad_converter.js` should stay the main unit-test target for pure conversion rules.
 - `src/content_script.js` should stay small enough to test through DOM fixtures and message mocks.
-- `src/popup.js` should be tested with DOM fixtures and mocked browser APIs rather than real extension runs.
+- `src/popup.js` regression tests use DOM fixtures and mocked browser APIs. The optional background QA harness separately exercises its real action popup and downloads in Chrome for Testing.
 - `src/service_worker_runtime.js` should be tested with mocked browser APIs, mocked fetch, mocked archive extraction, and controlled converter stubs.
 - The current Vitest/Vite/jsdom test stack requires Node `20.19.0+`, `22.13.0+`, or `24+`.
+- Optional Puppeteer browser QA requires Node `22.13.0+` or `24+`, Python `3.10+` with Pillow, and KiCad `10.x`. `npm test` and `npm run validate` exclude harness tests; `npm run qa:smoke` explicitly runs its JS/Python checks. Harness execution and all `qa:*` checks are optional, not commit or pull-request requirements. Live service blockers and fixture renders remain distinct from successful live end-to-end validation.
+- The private-desktop QA launcher checks the configured Chrome for Testing executable before starting its native helper; a missing browser reports the pinned-browser installation command rather than a downstream protocol failure.
+- QA Python correctness linting uses pinned Ruff through `npm run qa:lint`. The separate `Optional QA harness` workflow uses only `workflow_dispatch`; developers can manually run its offline lint/smoke checks on Node 24 and Python 3.10. Routine push/pull-request CI skips browser downloads and runs only extension validation.
+- Harness source and matrix-management scripts are tracked developer tooling. Actual QA matrix documents and campaign evidence remain untracked, normally in sibling `../qa-run/`; ignore rules also cover in-checkout `qa-run/` directories and known matrix filenames.
+- Browser-run rendering requires schema-2 verified final assets whose current sizes and SHA-256 hashes match the download inventory. Malformed library/model records retain outstanding inspections. Concurrent evidence saves serialize complete snapshots; final download accounting survives popup closure, and cleanup rechecks acquisition files after browser exit.
+- Browser-run assembly rendering also requires every footprint model reference to resolve to a verified inventoried model; unrelated local files leave the assembly blocked and its inspections outstanding.
 - Production source should not be refactored solely to make tests easier; harnesses should adapt to the existing code shape.
 - Local and CI validation share `npm run validate`, which runs ESLint, Vitest, `npm audit --audit-level=moderate`, and `git diff --check`.
 - GitHub Actions runs validation with `npm ci` on Node `20.19.0`, `22.13.0`, and `24.x`.

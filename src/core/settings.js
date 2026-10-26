@@ -32,15 +32,22 @@ const DEFAULT_SETTINGS = {
 
 const SESSION_SECRET_SETTINGS = { ...DEFAULT_SECRET_SETTINGS };
 
+// Browser download paths are relative to Downloads. Normalize both separator
+// styles and require named segments; invalid roots resolve to the shared default.
 function parseLibraryDownloadRoot(value) {
-  const raw = String(value || "").trim();
+  const input = String(value || "");
+  const raw = input.trim();
   const normalized = raw.replace(/[\\/]+/g, "/").replace(/^\/+|\/+$/g, "");
+  // Require portable filename characters before trimming, including at the
+  // input edges, to preserve the intended model layout across browser platforms.
+  const hasInvalidCharacters = /[<>:"|?*]/.test(input) ||
+    [...input].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127);
   const isAbsolute =
     raw.startsWith("/") || raw.startsWith("\\") || /^[a-zA-Z]:/.test(raw);
   const hasValidSegments =
     Boolean(normalized) &&
     normalized.split("/").every((segment) => segment !== "." && segment !== "..");
-  const isValid = Boolean(raw && !isAbsolute && hasValidSegments);
+  const isValid = Boolean(raw && !isAbsolute && !hasInvalidCharacters && hasValidSegments);
 
   return {
     value: isValid ? normalized : DEFAULT_LIBRARY_DOWNLOAD_ROOT,
@@ -52,6 +59,8 @@ function normalizeLibraryDownloadRoot(value) {
   return parseLibraryDownloadRoot(value).value;
 }
 
+// Relay endpoints may use HTTP(S); URL parsing canonicalizes the configured
+// endpoint and removes its browser-only fragment before requests use it.
 function parseSamacsysFirefoxProxyBaseUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -115,6 +124,8 @@ function encodeBase64(value) {
   return Buffer.from(value, "binary").toString("base64");
 }
 
+// Basic authentication joins the credential fields with a colon, encodes that
+// text as UTF-8 bytes, then Base64-encodes the byte string for the HTTP header.
 function buildSamacsysBasicAuthorizationHeader(username, password) {
   const normalizedUsername = parseSamacsysCredentialValue(
     username,
@@ -143,15 +154,14 @@ function getSessionStorageArea(chromeApi) {
 }
 
 function getStorageArea(area, defaults, chromeApi) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     if (!area?.get) {
       resolve({ ...defaults });
       return;
     }
     area.get(defaults, (settings) => {
       if (chromeApi.runtime.lastError) {
-        console.warn("Failed to load settings:", chromeApi.runtime.lastError);
-        resolve({ ...defaults });
+        reject(new Error(`Failed to load settings: ${chromeApi.runtime.lastError.message}`));
         return;
       }
       resolve(settings || { ...defaults });
@@ -163,6 +173,10 @@ function parseBooleanSetting(value, fallback) {
   return typeof value === "boolean" ? value : fallback;
 }
 
+// Ordinary preferences and remember flags come from local storage. Each remember
+// flag chooses the authoritative area for its secrets; missing areas use defaults.
+// Storage read errors reject so callers preserve the last saved preferences and
+// credentials until a complete settings snapshot can be loaded successfully.
 async function loadSettings(chromeApi) {
   const [settings, sessionSettings] = await Promise.all([
     getStorageArea(chromeApi.storage.local, DEFAULT_SETTINGS, chromeApi),

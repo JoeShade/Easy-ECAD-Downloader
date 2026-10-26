@@ -1,0 +1,296 @@
+[
+  {
+    "case": "P005",
+    "manufacturer": "Yageo",
+    "mpn": "RC1206FR-0710KL",
+    "id": "C132649",
+    "url": "https://www.lcsc.com/product-detail/C132649.html"
+  },
+  {
+    "case": "P015",
+    "manufacturer": "Yageo",
+    "mpn": "RC0603FR-0710KL",
+    "id": "C98220",
+    "url": "https://www.lcsc.com/product-detail/C98220.html"
+  },
+  {
+    "case": "P045",
+    "manufacturer": "Bourns",
+    "mpn": "4610X-101-103LF",
+    "id": "C840655",
+    "url": "https://www.lcsc.com/product-detail/C840655.html"
+  },
+  {
+    "case": "P060",
+    "manufacturer": "Nexperia",
+    "mpn": "PESD5V0S1UL,315",
+    "id": "C85402",
+    "url": "https://www.lcsc.com/product-detail/C85402.html"
+  },
+  {
+    "case": "P075",
+    "manufacturer": "Allegro MicroSystems",
+    "mpn": "ACS758LCB-050B-PFF-T",
+    "id": "C73426",
+    "url": "https://www.lcsc.com/product-detail/C73426.html"
+  },
+  {
+    "case": "P080",
+    "manufacturer": "Texas Instruments",
+    "mpn": "DRV8825PWPR",
+    "id": "C81582",
+    "url": "https://www.lcsc.com/product-detail/C81582.html"
+  },
+  {
+    "case": "P102",
+    "manufacturer": "Texas Instruments",
+    "mpn": "SN74HC595DR",
+    "id": "C10092",
+    "url": "https://www.lcsc.com/product-detail/C10092.html"
+  },
+  {
+    "case": "P105",
+    "manufacturer": "Texas Instruments",
+    "mpn": "ULN2803ADWR",
+    "id": "C9683",
+    "url": "https://www.lcsc.com/product-detail/C9683.html"
+  },
+  {
+    "case": "P110",
+    "manufacturer": "WCH",
+    "mpn": "CH422G",
+    "id": "C57543",
+    "url": "https://www.lcsc.com/product-detail/C57543.html"
+  },
+  {
+    "case": "P112",
+    "manufacturer": "Texas Instruments",
+    "mpn": "INA226AIDGSR",
+    "id": "C49851",
+    "url": "https://www.lcsc.com/product-detail/C49851.html"
+  },
+  {
+    "case": "P120",
+    "manufacturer": "Texas Instruments",
+    "mpn": "TXS0108EPWR",
+    "id": "C17206",
+    "url": "https://www.lcsc.com/product-detail/C17206.html"
+  },
+  {
+    "case": "P122",
+    "manufacturer": "Texas Instruments",
+    "mpn": "NE555P",
+    "id": "C46749",
+    "url": "https://www.lcsc.com/product-detail/C46749.html"
+  },
+  {
+    "case": "P125",
+    "manufacturer": "Microchip",
+    "mpn": "ATMEGA328P-PU",
+    "id": "C33901",
+    "url": "https://www.lcsc.com/product-detail/C33901.html"
+  },
+  {
+    "case": "P135",
+    "manufacturer": "Texas Instruments",
+    "mpn": "CC1101RGPR",
+    "id": "C29953",
+    "url": "https://www.lcsc.com/product-detail/C29953.html"
+  },
+  {
+    "case": "P140",
+    "manufacturer": "Texas Instruments",
+    "mpn": "BQ25895RTWR",
+    "id": "C80200",
+    "url": "https://www.lcsc.com/product-detail/C80200.html"
+  },
+  {
+    "case": "P145",
+    "manufacturer": "Texas Instruments",
+    "mpn": "HDC1080DMBR",
+    "id": "C82227",
+    "url": "https://www.lcsc.com/product-detail/C82227.html"
+  },
+  {
+    "case": "P155",
+    "manufacturer": "Microchip",
+    "mpn": "ATMEGA2560-16AU",
+    "id": "C22460",
+    "url": "https://www.lcsc.com/product-detail/C22460.html"
+  },
+  {
+    "case": "P160",
+    "manufacturer": "STMicroelectronics",
+    "mpn": "STM32F103C8T6",
+    "id": "C8734",
+    "url": "https://www.lcsc.com/product-detail/C8734.html"
+  },
+  {
+    "case": "P165",
+    "manufacturer": "STMicroelectronics",
+    "mpn": "STM32F405OGY6TR",
+    "id": "C2054927",
+    "url": "https://www.lcsc.com/product-detail/C2054927.html"
+  },
+  {
+    "case": "P175",
+    "manufacturer": "STMicroelectronics",
+    "mpn": "LIS3DHTR",
+    "id": "C15134",
+    "url": "https://www.lcsc.com/product-detail/C15134.html"
+  },
+  {
+    "case": "P180",
+    "manufacturer": "TDK InvenSense",
+    "mpn": "ICM-42688-P",
+    "id": "C1850418",
+    "url": "https://www.lcsc.com/product-detail/C1850418.html"
+  },
+  {
+    "case": "P182",
+    "manufacturer": "Kingbright",
+    "mpn": "WP7113ID",
+    "id": "C6926004",
+    "url": "https://www.lcsc.com/product-detail/C6926004.html"
+  },
+  {
+    "case": "P192",
+    "manufacturer": "Abracon",
+    "mpn": "ABS07-32.768KHZ-T",
+    "id": "C130253",
+    "url": "https://www.lcsc.com/product-detail/C130253.html"
+  },
+  {
+    "case": "P200",
+    "manufacturer": "Microchip",
+    "mpn": "MCP7940N-I/SN",
+    "id": "C51106",
+    "url": "https://www.lcsc.com/product-detail/C51106.html"
+  },
+  {
+    "case": "P202",
+    "manufacturer": "Espressif",
+    "mpn": "ESP32-S3-WROOM-1U-N8R2",
+    "id": "C3013944",
+    "url": "https://www.lcsc.com/product-detail/C3013944.html"
+  },
+  {
+    "case": "P203",
+    "manufacturer": "Espressif",
+    "mpn": "ESP32-C3-WROOM-02U-N4",
+    "id": "C2926676",
+    "url": "https://www.lcsc.com/product-detail/C2926676.html"
+  },
+  {
+    "case": "P208",
+    "manufacturer": "Vollgo",
+    "mpn": "VG6328A-Plus",
+    "id": "C53263475",
+    "url": "https://www.lcsc.com/product-detail/C53263475.html"
+  },
+  {
+    "case": "P209",
+    "manufacturer": "Vollgo",
+    "mpn": "VG6328A",
+    "id": "C20539408",
+    "url": "https://www.lcsc.com/product-detail/C20539408.html"
+  },
+  {
+    "case": "P212",
+    "manufacturer": "SHOU HAN",
+    "mpn": "TYPE-C 16PIN 2MD(073)",
+    "id": "C2765186",
+    "url": "https://www.lcsc.com/product-detail/C2765186.html"
+  },
+  {
+    "case": "P213",
+    "manufacturer": "G-Switch",
+    "mpn": "GT-USB-7010ASV",
+    "id": "C2988369",
+    "url": "https://www.lcsc.com/product-detail/C2988369.html"
+  },
+  {
+    "case": "P214",
+    "manufacturer": "XUNPU",
+    "mpn": "USB-B10-BRW",
+    "id": "C720549",
+    "url": "https://www.lcsc.com/product-detail/C720549.html"
+  },
+  {
+    "case": "P215",
+    "manufacturer": "Molex",
+    "mpn": "1054500101",
+    "id": "C134092",
+    "url": "https://www.lcsc.com/product-detail/C134092.html"
+  },
+  {
+    "case": "P220",
+    "manufacturer": "XUNPU",
+    "mpn": "HDMI-001S",
+    "id": "C720616",
+    "url": "https://www.lcsc.com/product-detail/C720616.html"
+  },
+  {
+    "case": "P232",
+    "manufacturer": "JST",
+    "mpn": "B2B-PH-K-S(LF)(SN)",
+    "id": "C131337",
+    "url": "https://www.lcsc.com/product-detail/C131337.html"
+  },
+  {
+    "case": "P251",
+    "manufacturer": "DORABO",
+    "mpn": "DB301V-3.5-2P-GN-S",
+    "id": "C695629",
+    "url": "https://www.lcsc.com/product-detail/C695629.html"
+  },
+  {
+    "case": "P252",
+    "manufacturer": "Phoenix Contact",
+    "mpn": "1725656",
+    "id": "C3029316",
+    "url": "https://www.lcsc.com/product-detail/C3029316.html"
+  },
+  {
+    "case": "P255",
+    "manufacturer": "Amphenol",
+    "mpn": "L77SDE09S1ACH4F",
+    "id": "C5429161",
+    "url": "https://www.lcsc.com/product-detail/C5429161.html"
+  },
+  {
+    "case": "P261",
+    "manufacturer": "Zhejiang HKE",
+    "mpn": "V6-S-DC5V",
+    "id": "C125716",
+    "url": "https://www.lcsc.com/product-detail/C125716.html"
+  },
+  {
+    "case": "P265",
+    "manufacturer": "Omron",
+    "mpn": "G6K-2F-Y DC5",
+    "id": "C1560486",
+    "url": "https://www.lcsc.com/product-detail/C1560486.html"
+  },
+  {
+    "case": "P280",
+    "manufacturer": "Omron",
+    "mpn": "A6S-4101-H",
+    "id": "C306873",
+    "url": "https://www.lcsc.com/product-detail/C306873.html"
+  },
+  {
+    "case": "P281",
+    "manufacturer": "USAKRO",
+    "mpn": "KMS-1102NL",
+    "id": "C19725172",
+    "url": "https://www.lcsc.com/product-detail/C19725172.html"
+  },
+  {
+    "case": "P295",
+    "manufacturer": "Bourns",
+    "mpn": "3296W-1-103LF",
+    "id": "C34846",
+    "url": "https://www.lcsc.com/product-detail/C34846.html"
+  }
+]

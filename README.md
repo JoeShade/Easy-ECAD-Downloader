@@ -74,7 +74,7 @@ The content script detects supported part contexts from EasyEDA-backed JLCPCB/LC
 
 ### 2. Preview and download from the popup
 
-The popup shows manufacturer details, source-specific part metadata, symbol and footprint previews, and the available export options.
+The popup shows manufacturer details, source-specific part metadata, symbol and footprint previews, and the available export options. On LCSC, `Mfr. Part #` reads the product summary's `MPN` field, while `LCSC part` identifies the catalogue entry used for previews and downloads.
 
 <p align="center">
   <img src="docs/assets/readme/PopupPreview.png" alt="Easy ECAD Downloader popup preview" width="260">
@@ -305,6 +305,8 @@ Key implementation areas:
 ## <img src="docs/assets/readme/icon-contributing.svg" alt="" width="20" height="20" align="absmiddle"> Contributing
 
 Read [contributing.md](contributing.md) for development setup, local validation, contribution expectations, and manual extension-loading instructions. Read [AGENTS.md](AGENTS.md) for repository working rules.
+
+The optional [background QA harness](tests/headless-qa/README.md) exercises headed Chrome on a private Windows desktop and KiCad 10 with isolated temporary downloads, preserved evidence, and model inspection views. Browser windows stay off your working desktop. Before a full matrix, `npm run qa:auth -- --terminal` opens a dedicated user credential console and waits for successful entry. Run `npm run qa:smoke` for its offline regression checks and `npm run qa:lint` for Python correctness linting after installing the harness requirements.
 
 Good contributions include parser fixes for real component pages, regression tests for failed exports, output-format corrections, browser compatibility fixes, and documentation that makes the workflow clearer for KiCad users.
 
