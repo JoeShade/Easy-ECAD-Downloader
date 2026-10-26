@@ -6,6 +6,7 @@ Notable changes are recorded here in reverse chronological order.
 
 ### Added
 
+- Added `npm run package` for verified unpacked-extension ZIPs and SHA-256 checksums, plus automatic GitHub Releases on matching version tags from `main`. Releases use the version's changelog notes and normal extension validation; QA remains optional.
 - Added an opt-in Windows browser/KiCad QA harness with real extension popup acquisition, verified download inventories, isolated evidence, native KiCad 10 rendering and offline regression checks, plus a repository-local matrix execution skill.
 - Added `qa:auth -- --terminal` to open a dedicated credential console and gate full-matrix startup on successful entry, preserving the existing cache after cancellation or invalid input.
 - Added visible terminal entry and an encrypted Windows volatile-registry cache for browser QA SamacSys credentials, reused across runs until restart or user-hive unload, with `qa:auth` setup and clearing commands.

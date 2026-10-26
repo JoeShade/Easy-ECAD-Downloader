@@ -1,0 +1,77 @@
+# Validate version tags and publish verified unpacked-extension release assets.
+# Reuse normal extension CI; the browser/KiCad QA workflow remains optional.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Package and publish
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the tagged revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify the tag belongs to main
+        shell: bash
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor HEAD origin/main
+          git fetch --no-tags origin "refs/tags/$GITHUB_REF_NAME"
+          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "$(git rev-parse HEAD)"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Test packaging
+        run: npm run package:test
+
+      - name: Build and verify release assets
+        run: npm run package -- --tag "$GITHUB_REF_NAME" --repository "$GITHUB_REPOSITORY"
+
+      - name: Publish complete release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          archive="easy-ecad-downloader-$version.zip"
+          (cd dist && sha256sum --check "$archive.sha256")
+          # Drafts permit retrying interrupted uploads. Published versions remain immutable.
+          if draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft'); then
+            if [ "$draft" != true ]; then
+              echo "Release $GITHUB_REF_NAME is already published; use a new version tag."
+              exit 1
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
+              --title "Easy ECAD Downloader $version" --notes-file dist/release-notes.md
+          fi
+          gh release upload "$GITHUB_REF_NAME" "dist/$archive" "dist/$archive.sha256" --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest \
+            --title "Easy ECAD Downloader $version" --notes-file dist/release-notes.md

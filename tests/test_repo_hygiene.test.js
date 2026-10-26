@@ -30,7 +30,7 @@ const GOVERNANCE_FILES = [
   "docs/deviations.md"
 ];
 
-const SKIPPED_REPOSITORY_DIRS = new Set([".git", "coverage", "node_modules", ".qa-output", "__pycache__"]);
+const SKIPPED_REPOSITORY_DIRS = new Set([".git", "coverage", "dist", "node_modules", ".qa-output", "__pycache__"]);
 
 const CONVENTIONAL_ROOT_FILES = new Set([
   ".gitignore",
@@ -268,7 +268,7 @@ function hasTopLevelExplainer(text, relativePath = "file.js") {
 
 function isMaintainedCodeFile(relativePath) {
   if (relativePath.startsWith("tests/fixtures/")) return false;
-  return /^(src|tests)\/.*\.(?:[cm]?js|py|ps1|html|css)$/.test(relativePath) ||
+  return /^(src|tests|scripts)\/.*\.(?:[cm]?js|py|ps1|html|css)$/.test(relativePath) ||
     /^\.agents\/skills\/[^/]+\/scripts\/.*\.(?:[cm]?js|py|ps1)$/.test(relativePath) ||
     /^\.github\/workflows\/.*\.ya?ml$/.test(relativePath) ||
     [".puppeteerrc.cjs", "eslint.config.js", "vitest.config.js"].includes(relativePath);

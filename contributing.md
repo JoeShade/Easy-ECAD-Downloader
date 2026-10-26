@@ -87,9 +87,35 @@ Use `README.md` for the operator-facing overview. Use `systemDesign.md` for the 
 
 CI runs on pushes and pull requests with the three Node validation jobs, skipping the QA browser download. The separate `Optional QA harness` workflow runs only through manual `workflow_dispatch` and offers offline checks on Node 24 and Python 3.10. Local validation establishes the local working tree's results.
 
-Automated packaging and store delivery are not implemented. Browser-store publication is managed by the maintainer.
+Version-tag pushes publish the unpacked-extension ZIP and SHA-256 checksum to GitHub Releases through the `Release` workflow. Browser-store publication is managed separately by the maintainer.
 
 Routine lint checks JavaScript, including harness source, without executing the harness. QA Python lint is available through the optional workflow or `npm run qa:lint`. Dedicated lint for PowerShell, HTML/CSS, workflow YAML and the local `.agents` matrix scripts remains outside routine CI. Matrix helper Ruff/unit checks are optional developer checks.
+
+## Packaging and GitHub Releases
+
+Packaging requires Git and Python 3.10+ on PATH and uses only the Python standard library:
+
+```bash
+npm run package:test
+npm run package
+```
+
+The command creates `dist/easy-ecad-downloader-<version>.zip`, its `.zip.sha256` checksum, and `dist/release-notes.md`. These generated files are ignored by Git. The ZIP contains the tracked `manifest.json`, `LICENSE`, runtime JavaScript/HTML/CSS/PNG files under `src/`, and PNG icons under `icons/`. New runtime files must be added to Git's index to be included. Working-tree edits to tracked files are included; text line endings and ZIP metadata are normalized. Developer tooling, QA data, documentation and installation instructions are excluded.
+
+Packaging checks the manifest, package and both root lockfile versions, the matching changelog section, manifest entrypoints, static module/HTML/CSS references, and the final ZIP inventory and bytes. Release notes use only the matching changelog section and link repository documents at the version tag.
+
+To publish, merge the version and changelog changes into `main`, then create and push an annotated tag matching the manifest version. For example, for version 1.1.0:
+
+```bash
+git switch main
+git pull --ff-only
+git tag -a v1.1.0 -m "Easy ECAD Downloader 1.1.0"
+git push origin v1.1.0
+```
+
+The `Release` workflow reuses the three Node validation jobs, checks that the tag resolves to a commit on `main`, runs the packaging tests, and verifies the package against the tag. It uploads the ZIP and checksum to a draft, then publishes the completed release with changelog notes. No QA harness run is required. Ordinary branch/PR CI does not publish releases.
+
+An interrupted upload leaves a draft that the same workflow can finish on rerun. Published releases are not overwritten by the workflow; corrections use a new version and tag. The workflow uses GitHub's built-in token and needs no separately configured release secret.
 
 ## Change guidelines
 
