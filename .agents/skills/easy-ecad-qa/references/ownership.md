@@ -6,7 +6,7 @@ Find defects in **what Easy ECAD Downloader does with the product information an
 
 A reportable `FAIL` needs evidence of an extension-owned contract violation. Ownership is not the same as root cause: showing that a correct page ID becomes a different popup ID establishes the boundary failure without tracing implementation code.
 
-Use the supplied fixed 300-case parts list and preserve its identities, website/provider distribution and row order. Use the current local headless harness and inspect the actual Chrome previews and KiCad CLI images. Computer Use and interactive KiCad are not part of this procedure.
+Use the supplied fixed 300-case parts list and preserve its identities, website/provider distribution and row order. Use the current local private-desktop browser harness and inspect the actual Chrome previews and KiCad CLI images. Computer Use and interactive KiCad are not part of this procedure.
 
 ## What to test
 

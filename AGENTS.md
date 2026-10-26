@@ -39,7 +39,7 @@ This repository is a compact browser extension that detects supported distributo
 - Prefer regression tests for bug fixes.
 - Use test-only harnesses, mocks, fixtures, and loaders instead of production refactors for testability.
 - Run `npm run lint` for JavaScript source or test changes.
-- For QA harness Python changes, install its pinned image/lint requirements and run `npm run qa:lint` plus `npm run qa:smoke` as described in `tests/headless-qa/README.md`.
+- The browser/KiCad QA harness, matrix campaigns and `qa:*` checks are optional developer tools, not commit or pull-request requirements. For harness work, developers can run `npm run qa:lint` and `npm run qa:smoke` after installing the pinned requirements in `tests/headless-qa/README.md`. Live QA runs require an explicit request.
 - Run targeted tests while iterating.
 - Run `npm run validate` before finalizing when Node/npm are available.
 
@@ -60,13 +60,14 @@ This repository is a compact browser extension that detects supported distributo
 ## Validation and self-review
 
 - Verify the touched behavior directly.
-- Run the relevant tests while iterating and the full suite before finalizing.
+- Run the relevant extension tests while iterating and `npm run validate` before finalizing; optional QA harness checks remain separate.
 - Do a self-review for correctness, architecture fit, documentation drift, and test coverage gaps.
 - Report assumptions, residual risks, and blocked work explicitly.
 
 ## Repository hygiene
 
 - Keep generated archives, scratch artifacts, and disposable outputs out of the tracked tree.
+- Keep QA matrix documents and campaign evidence untracked, normally in the sibling `../qa-run/` directory. The harness and matrix-management scripts remain tracked developer tooling.
 - Remove obsolete references when files or behaviors change.
 - Keep test harnesses and developer support code under `tests/` or other clearly developer-only locations.
 - Let the repo-hygiene tests enforce governance files, footer coverage, and documentation discipline.

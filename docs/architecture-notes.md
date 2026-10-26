@@ -33,7 +33,7 @@ This file records short implementation notes that supplement, but do not replace
 - Full-matrix startup first waits for `qa:auth -- --terminal`: a separate visible credential console with unredirected streams, a parent cancellation pipe and exit-status gating. New credentials replace the volatile cache only after valid entry; SamacSys rows then opt into the existing session provisioning path.
 - Concurrent JSON saves publish snapshots in call order. Download accounting survives popup closure; temporary acquisition cleanup rechecks preserved bytes after confirmed Chrome exit and retains uncertain files for recovery.
 - Browser-run assembly rendering accepts model references only when they resolve to verified inventory entries; an existing unrelated local file leaves assembly inspection blocked.
-- `npm run qa:lint` and `npm run qa:smoke` share their Python pins and commands with the offline QA CI job. Native browser/KiCad runs remain opt-in evidence gathering.
+- `npm run qa:lint` and `npm run qa:smoke` share their Python pins and commands with the manually triggered `Optional QA harness` workflow. Routine extension validation excludes harness tests; all QA commands and native browser/KiCad runs are optional developer tools. Matrix documents and campaign evidence remain untracked alongside the tracked harness and bookkeeping scripts.
 
 ## Current implementation caveats worth preserving
 
@@ -65,6 +65,6 @@ This file records short implementation notes that supplement, but do not replace
 
 ## Configuration and fixture explainers
 
-`manifest.json` declares browser permissions, injected pages and entrypoints; `package.json` declares commands and dependencies. Both are strict JSON, whose format has no comment syntax. `package-lock.json` is generated dependency metadata. Captured HTML and JSON under `tests/fixtures/` are upstream test data; test modules describe their ownership and use. These adjacent descriptions preserve valid formats. Formal approval of the review guide's in-file-explainer exception remains outstanding with the maintainer; reconsider these constraints when formats or generators change.
+`manifest.json` declares the extension release version, browser permissions, injected pages and entrypoints; `package.json` declares the matching private-package version, commands and dependencies. Both are strict JSON, whose format has no comment syntax. `package-lock.json` is generated dependency metadata with matching root-package versions. Captured HTML and JSON under `tests/fixtures/` are upstream test data; test modules describe their ownership and use. These adjacent descriptions preserve valid formats. Formal approval of the review guide's in-file-explainer exception remains outstanding with the maintainer; reconsider these constraints when formats or generators change.
 - The current repository is intentionally compact; add new sources through focused adapters or distributor detection changes rather than introducing a broader application framework.
 - The manifest intentionally declares both `background.service_worker` and `background.scripts` so Chrome can run the service worker while Firefox falls back to a background document on Firefox 121+.

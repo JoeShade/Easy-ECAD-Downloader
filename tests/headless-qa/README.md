@@ -2,8 +2,8 @@
 
 This developer-only harness operates the actual unpacked extension in headed Chrome for Testing
 on a private Windows desktop, preserving the user's input desktop and focus. KiCad 10 CLI renders
-downloaded libraries without interactive KiCad windows. Production source, the manifest,
-and the existing `tests/headless-qa/` path and commands remain unchanged.
+downloaded libraries without interactive KiCad windows. Harness runs and all `qa:*` checks
+are optional developer tools and are not required for commits or pull requests.
 
 ## Install
 
@@ -365,8 +365,8 @@ python tests/headless-qa/render.py --input "tests/headless-qa/fixtures/known-goo
 `qa:lint` runs pinned Ruff's default correctness rules (E4, E7, E9 and F) on the
 QA Python implementation and tests. `npm run lint` covers QA JavaScript. Install
 `requirements-lint.txt` alongside the image requirements before these local checks.
-The `Offline QA harness` CI job runs Python linting and the same JS/Python smoke
-command on Node 24 and Python 3.10, with browser downloads skipped at installation.
+The manually triggered `Optional QA harness` workflow runs Python linting and the
+same JS/Python smoke command on Node 24 and Python 3.10, skipping browser downloads.
 Native Chrome/KiCad integration remains local opt-in validation.
 
 `qa:smoke` runs deterministic JS and Python checks with no Chrome, KiCad or
@@ -445,5 +445,5 @@ input-file eligibility does not establish browser download completion or provena
 
 Successful decoding or a nonblank-image heuristic is never a claim of component
 correctness. Pin mapping, dimensions and model alignment require inspection.
-Browser QA is local opt-in validation; deterministic JS smoke tests also run in
-the normal Vitest suite. Run `npm.cmd run validate` before finalizing changes.
+Browser QA is local opt-in validation; `npm test` and `npm run validate` exclude
+the harness tests. Use `npm run qa:smoke` explicitly for its offline JS/Python checks.

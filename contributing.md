@@ -68,11 +68,16 @@ npm run validate
 
 On Windows PowerShell installations that block npm's script shim, use `npm.cmd` and `npx.cmd` for the same commands.
 
-For QA harness changes, follow [tests/headless-qa/README.md](tests/headless-qa/README.md)
-to install its pinned Python image and lint requirements, then run `npm run qa:lint`
-and `npm run qa:smoke` alongside normal validation. The `Offline QA harness` CI job
-runs those checks on Node 24 and Python 3.10. Browser/KiCad integration checks remain
-local opt-in runs with isolated evidence directories.
+The browser/KiCad QA harness and all `qa:*` commands are optional developer tools.
+They are not required for commits or pull requests, and `npm test` / `npm run validate`
+exclude the harness's test suite. Developers working on the harness can use
+`npm run qa:lint` and `npm run qa:smoke` after installing the pinned requirements in
+[the QA guide](tests/headless-qa/README.md). Live browser/KiCad runs remain local opt-in checks.
+
+Harness source and matrix-management scripts are tracked. Actual test matrices and
+campaign evidence stay untracked, normally under the sibling `../qa-run/` directory.
+Ignore rules also cover a local `qa-run/` directory and the known matrix filenames
+if copied into this checkout.
 
 The Vitest suite includes a history-wide security hygiene check. It is meant for full validation, CI, security cleanup, and before sharing pushed history; it does not need to be run manually for every intermediate local commit while iterating.
 
@@ -80,13 +85,11 @@ Use `README.md` for the operator-facing overview. Use `systemDesign.md` for the 
 
 ## CI and delivery requirements
 
-CI runs on pushes and pull requests with the three Node validation jobs and the offline QA job. Repository settings must require those passing checks before merging to integration branches. Branch protection and current revision results require separate verification through GitHub; local validation establishes the local working tree's results.
+CI runs on pushes and pull requests with the three Node validation jobs, skipping the QA browser download. The separate `Optional QA harness` workflow runs only through manual `workflow_dispatch` and offers offline checks on Node 24 and Python 3.10. Local validation establishes the local working tree's results.
 
-On 2026-10-22, GitHub reported `Development` unprotected and `main` protected with required status-check enforcement off and no required checks; the repository ruleset list was empty. Required merge gates remain unresolved. Enable all three Node validation checks and `Offline QA harness` for both integration branches, then verify them on the revision being merged.
+Automated packaging and store delivery are not implemented. Browser-store publication is managed by the maintainer.
 
-Automated packaging/delivery and a documented store-release/recovery procedure are currently absent. These remain unresolved review requirements. Browser-store publication requires the maintainer's release process and credentials; this repository provides no approved CD exception.
-
-Current automated lint covers JavaScript and the QA harness Python files. Dedicated lint for PowerShell, HTML/CSS, workflow YAML and the local `.agents` matrix scripts remains outside the required CI commands. Manual matrix Ruff/unit checks supplement this scope during review; they do not establish a CI gate.
+Routine lint checks JavaScript, including harness source, without executing the harness. QA Python lint is available through the optional workflow or `npm run qa:lint`. Dedicated lint for PowerShell, HTML/CSS, workflow YAML and the local `.agents` matrix scripts remains outside routine CI. Matrix helper Ruff/unit checks are optional developer checks.
 
 ## Change guidelines
 
@@ -94,6 +97,7 @@ Current automated lint covers JavaScript and the QA harness Python files. Dedica
 - Update tests with every substantive behavior change.
 - Update docs when behavior, support boundaries, or module ownership changes.
 - Update `CHANGELOG.md` for user-visible changes, repository validation changes, security changes, and release-relevant fixes.
+- Keep the version in `manifest.json`, `package.json` and both root-package version fields in `package-lock.json` aligned.
 - Do not refactor production files unless behavior or repository rules require it.
 - Keep browser API orchestration in the worker, DOM extraction in the content script, and UI state in the popup.
 - Use the established naming styles: lower snake_case for JavaScript files, lower kebab-case for docs and image assets, and lower camelCase for function declarations.

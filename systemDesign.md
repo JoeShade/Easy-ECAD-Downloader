@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This document describes the current implemented design of the Easy ECAD Downloader browser extension.
+This document describes the implemented design of Easy ECAD Downloader 1.1.0. Known limitations are recorded below and in [docs/deviations.md](docs/deviations.md).
 
 The extension supports three provider flows:
 
@@ -26,12 +26,14 @@ The repository remains intentionally compact. If code and design diverge, update
 
 ### 2.2 Explicit non-goals
 
-The current repository does not implement:
+The production extension does not implement:
 
 - browser automation outside the popup/content-script/service-worker model
 - end-to-end browser-run integration tests in real Firefox
 - a project-hosted proxy or cloud backend for Mouser / SamacSys Firefox support
 - a broader application-layer architecture beyond the existing file split
+
+Developer-only Chrome/KiCad automation lives under `tests/headless-qa/`; real Firefox integration tests remain unavailable.
 
 ## 3. Supported contexts and assumptions
 
@@ -75,7 +77,7 @@ flowchart LR
     zipReader["SamacSys ZIP reader\nsrc/vendor/zip_reader.js"]
     downloads["Browser downloads\nchrome.downloads"]
     easyeda["EasyEDA APIs\nCAD, STEP, OBJ, datasheet URLs"]
-    samacsys["SamacSys / Component Search Engine\nentry, preview, ZIP, WRL"]
+    samacsys["SamacSys / Component Search Engine\nentry, preview, ZIP"]
 
     user --> productPage
     user --> popup
@@ -262,6 +264,8 @@ The EasyEDA-only field reader accepts complete values under exact normalized `JL
 
 One distinct ID is accepted; duplicates agree and conflicting URL/field IDs return the existing empty context, disabling previews and export. The whole-page text fallback is removed. Manufacturer metadata uses only exact normalized `Mfr. Part #` (including `MFR.Part #`) and `MPN` labels in those same supported fields. Values remain strings with punctuation, case, leading zeros and internal spaces preserved; repeated agreeing MPNs are deduplicated and conflicting MPNs are omitted. URL-derived contexts require an agreeing catalogue field before attaching an MPN. An unavailable MPN does not block previews or export for a valid catalogue identity; EasyEDA lookups continue to use the LCSC id. No identity is cached, and no network validation, observers or retries are added.
 
+Farnell-family description parsing uses whitespace-delimited hyphens as field separators, preserving internal hyphens in manufacturer names and part numbers. Malformed percent escapes in product paths leave the other page-field and ECAD-link fallbacks available.
+
 ### 5.2 Request previews
 
 - The popup asks the service worker for `GET_PART_PREVIEWS`.
@@ -300,6 +304,7 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
 - Rewriting escapes KiCad strings and changes only the first existing model-path token, preserving transforms, geometry and existing multiple-block behavior. When no selected model has a usable receipt, all stale `(model ...)` blocks are removed.
 - EasyEDA OBJ-to-WRL conversion recenters model geometry in X/Y and bottom-aligns the model in Z. Footprint model offsets use millimetres; WRL geometry separately uses KiCad's 2.54 mm per WRL unit convention.
 - Library-mode datasheet exports are written under `<libraryRoot>/datasheets/`.
+- EasyEDA symbol export still has fidelity limitations for noncircular ellipses, curved/relative `PT` paths and unequal-radii arcs. Native SVG previews support broader path geometry than CAD export, so preview appearance alone does not establish exported-symbol fidelity.
 
 ### 5.4 Export SamacSys distributor parts
 
@@ -321,6 +326,7 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
   - `3D/*.stp` and `3D/*.step`
   - optional `3D/*.wrl`
 - Upstream entry, metadata, preview and ZIP destinations require HTTPS on `componentsearchengine.com` or its subdomains at the standard port, with empty URL credentials. The relay example validates each redirect and clears forwarded credentials on origin changes.
+- Direct Chrome fetches validate initial targets and the final metadata URL, but automatic preview/ZIP redirects can still consume responses outside that host rule. [docs/deviations.md](docs/deviations.md) records this open enforcement gap.
 - ZIP extraction verifies directory/header/data bounds, declared lengths and CRC-32, and limits total expanded bytes to 256 MiB. Encrypted, multi-disk and ZIP64 metadata produce explicit unsupported-format errors.
 - Loose-file mode downloads the extracted files directly into Downloads.
 - Library mode repackages the extracted assets into the current KiCad structure:
@@ -331,6 +337,7 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
   - the symbol `Footprint` property to `<libraryName>:<footprintName>`
   - the footprint `(model ...)` path to `../<libraryName>.3dshapes/<modelFilename>`
 - When 3D export is selected, the worker exports STEP models and any WRL files already present in the SamacSys ZIP without probing extra remote WRL endpoints.
+- Library rewriting retains first-footprint/first-model association assumptions for archives with multiple assets; arbitrary symbol/footprint/model pairing is not independently resolved.
 
 ## 6. Storage and settings behavior
 
@@ -398,9 +405,10 @@ One distinct ID is accepted; duplicates agree and conflicting URL/field IDs retu
 - `src/popup.js` regression tests use DOM fixtures and mocked browser APIs. The optional background QA harness separately exercises its real action popup and downloads in Chrome for Testing.
 - `src/service_worker_runtime.js` should be tested with mocked browser APIs, mocked fetch, mocked archive extraction, and controlled converter stubs.
 - The current Vitest/Vite/jsdom test stack requires Node `20.19.0+`, `22.13.0+`, or `24+`.
-- Optional Puppeteer browser QA requires Node `22.13.0+` or `24+`, Python `3.10+` with Pillow, and KiCad `10.x`. Deterministic JS smoke checks join normal Vitest validation; Python smoke checks run through `npm run qa:smoke`. Live service blockers and fixture renders remain distinct from successful live end-to-end validation.
+- Optional Puppeteer browser QA requires Node `22.13.0+` or `24+`, Python `3.10+` with Pillow, and KiCad `10.x`. `npm test` and `npm run validate` exclude harness tests; `npm run qa:smoke` explicitly runs its JS/Python checks. Harness execution and all `qa:*` checks are optional, not commit or pull-request requirements. Live service blockers and fixture renders remain distinct from successful live end-to-end validation.
 - The private-desktop QA launcher checks the configured Chrome for Testing executable before starting its native helper; a missing browser reports the pinned-browser installation command rather than a downstream protocol failure.
-- QA Python correctness linting uses pinned Ruff through `npm run qa:lint`. A separate `Offline QA harness` CI job installs pinned Python requirements and runs linting plus JS/Python smoke checks on Node 24 and Python 3.10.
+- QA Python correctness linting uses pinned Ruff through `npm run qa:lint`. The separate `Optional QA harness` workflow uses only `workflow_dispatch`; developers can manually run its offline lint/smoke checks on Node 24 and Python 3.10. Routine push/pull-request CI skips browser downloads and runs only extension validation.
+- Harness source and matrix-management scripts are tracked developer tooling. Actual QA matrix documents and campaign evidence remain untracked, normally in sibling `../qa-run/`; ignore rules also cover in-checkout `qa-run/` directories and known matrix filenames.
 - Browser-run rendering requires schema-2 verified final assets whose current sizes and SHA-256 hashes match the download inventory. Malformed library/model records retain outstanding inspections. Concurrent evidence saves serialize complete snapshots; final download accounting survives popup closure, and cleanup rechecks acquisition files after browser exit.
 - Browser-run assembly rendering also requires every footprint model reference to resolve to a verified inventoried model; unrelated local files leave the assembly blocked and its inspections outstanding.
 - Production source should not be refactored solely to make tests easier; harnesses should adapt to the existing code shape.

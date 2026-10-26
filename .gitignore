@@ -3,6 +3,10 @@ easyECADDownloader.zip
 node_modules/
 coverage/
 .qa-output/
+# Local QA matrices and campaign evidence; harness source remains tracked.
+qa-run/
+[Tt][Ee][Ss][Tt][-_][Mm][Aa][Tt][Rr][Ii][Xx]*.[Mm][Dd]
+easy_ecad_url_test_matrix*.md
 __pycache__/
 docs/easy-ecad-downloader-architecture.drawio
 docs/professional-grade-review.md

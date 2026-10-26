@@ -6,6 +6,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
@@ -125,7 +126,8 @@ function applicableSourceFiles() {
     }
     for (const entry of fs.readdirSync(basePath, { recursive: true })) {
       const fullPath = path.join(basePath, entry);
-      if (fs.statSync(fullPath).isFile() && fullPath.endsWith(".js")) {
+      if (fs.statSync(fullPath).isFile() && fullPath.endsWith(".js") &&
+          !isLocalQaArtifact(repoRelativePath(fullPath))) {
         files.push(fullPath);
       }
     }
@@ -145,12 +147,22 @@ function applicableSourceFiles() {
   return files.sort();
 }
 
+// Local campaign inputs and evidence are developer data. Scan maintained files
+// separately, and check Git's tracked paths below so forced additions still fail.
+function isLocalQaArtifact(relativePath) {
+  const filename = path.posix.basename(relativePath);
+  return relativePath.split("/").includes("qa-run") ||
+    /^test[-_]matrix.*\.md$/i.test(filename) ||
+    /^easy_ecad_url_test_matrix.*\.md$/.test(filename);
+}
+
 function repositoryFiles() {
   const files = [];
 
   function walk(directoryPath) {
     for (const entry of fs.readdirSync(directoryPath, { withFileTypes: true })) {
       const fullPath = path.join(directoryPath, entry.name);
+      if (isLocalQaArtifact(repoRelativePath(fullPath))) continue;
       if (entry.isDirectory()) {
         if (!SKIPPED_REPOSITORY_DIRS.has(entry.name)) {
           walk(fullPath);
@@ -263,6 +275,27 @@ function isMaintainedCodeFile(relativePath) {
 }
 
 describe("repository hygiene", () => {
+  it("keeps local QA matrices and campaign evidence untracked while retaining the harness", () => {
+    const trackedPaths = execFileSync("git", ["ls-files", "-z"], {
+      cwd: REPO_ROOT, encoding: "utf8"
+    }).split("\0").filter(Boolean);
+    expect(trackedPaths.filter(isLocalQaArtifact)).toEqual([]);
+    const toolingPaths = [
+      "tests/headless-qa/run.js",
+      ".agents/skills/easy-ecad-qa/scripts/matrix.py",
+      ".agents/skills/easy-ecad-qa/scripts/test_matrix.py"
+    ];
+    expect(trackedPaths).toEqual(expect.arrayContaining(toolingPaths));
+    const localPaths = [
+      "TEST-MATRIX.MD", "TEST-MATRIX-50-EASYEDA-20261022.MD", "test_matrix.md",
+      "easy_ecad_url_test_matrix_extension_only.md", "qa-run/campaigns/example/result.json"
+    ];
+    const ignoredPaths = execFileSync("git", ["check-ignore", "--no-index", "--stdin"], {
+      cwd: REPO_ROOT, encoding: "utf8", input: [...localPaths, ...toolingPaths].join("\n") + "\n"
+    }).trim().split(/\r?\n/);
+    expect(ignoredPaths).toEqual(localPaths);
+  });
+
   it.each([".github/workflows/release.yml", ".agents/skills/example/scripts/check.py", "tests/helper.mjs"])(
     "includes maintained support code in explainer coverage: %s", relativePath => {
       expect(isMaintainedCodeFile(relativePath)).toBe(true);
