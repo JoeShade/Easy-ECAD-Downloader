@@ -11,6 +11,8 @@
     "lint": "eslint .",
     "pretest": "node tests/helpers/check_node_version.js",
     "test": "vitest run --exclude=tests/headless-qa/**",
+    "package": "python scripts/package_extension.py",
+    "package:test": "python -m unittest discover -s tests -p test_package_extension.py",
     "qa:preflight": "node tests/headless-qa/preflight.js",
     "qa:run": "node tests/headless-qa/run.js",
     "qa:auth": "node tests/headless-qa/auth.js",

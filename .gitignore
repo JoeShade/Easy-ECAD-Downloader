@@ -2,6 +2,7 @@ easyECADDownloader.crx
 easyECADDownloader.zip
 node_modules/
 coverage/
+dist/
 .qa-output/
 # Local QA matrices and campaign evidence; harness source remains tracked.
 qa-run/

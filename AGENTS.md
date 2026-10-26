@@ -12,6 +12,7 @@ This repository is a compact browser extension that detects supported distributo
 - `src/sources/`: EasyEDA and SamacSys source adapters and upstream fetch/archive helpers
 - `src/kicad_converter.js` and `src/kicad/`: EasyEDA-to-KiCad conversion and OBJ-to-WRL conversion
 - `tests`: regression suite for pure logic, implementation behavior, and repository hygiene
+- `scripts/package_extension.py`: developer packaging and release-asset verification
 
 `systemDesign.md` is the design source of truth.
 
@@ -41,6 +42,7 @@ This repository is a compact browser extension that detects supported distributo
 - Run `npm run lint` for JavaScript source or test changes.
 - The browser/KiCad QA harness, matrix campaigns and `qa:*` checks are optional developer tools, not commit or pull-request requirements. For harness work, developers can run `npm run qa:lint` and `npm run qa:smoke` after installing the pinned requirements in `tests/headless-qa/README.md`. Live QA runs require an explicit request.
 - Run targeted tests while iterating.
+- For packaging changes, run `npm run package:test` and `npm run package` with Python 3.10+.
 - Run `npm run validate` before finalizing when Node/npm are available.
 
 ## Using `systemDesign.md`

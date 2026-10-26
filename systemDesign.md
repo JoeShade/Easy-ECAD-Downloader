@@ -427,3 +427,11 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
 - Do not reorganize production files without a real architectural reason.
 - Keep browser API orchestration in the service worker, UI state in the popup, DOM extraction in the content script, and conversion rules in the converter.
 - Keep governance files and hygiene tests aligned with the codebase.
+
+## 12. Extension packaging and releases
+
+- `scripts/package_extension.py` uses Python 3.10+ standard-library tools behind `npm run package`. It selects tracked runtime files through an explicit path/type allowlist: `manifest.json`, `LICENSE`, JavaScript/HTML/CSS/PNG files under `src/`, and PNG files under `icons/`.
+- The archive has `manifest.json` at its root. Packaging excludes developer dependencies, QA tools/data, docs and installation instructions. Source text uses LF line endings and archive metadata is fixed; binary assets retain their bytes.
+- Version metadata, changelog presence, manifest entrypoints, static ES-module/HTML/CSS references, ZIP inventory and archived bytes are verified before output. `dist/` holds the ZIP, SHA-256 checksum and tag-linked release notes and remains untracked.
+- `npm run package:test` exercises packaging in isolated Git repositories without browsers, KiCad or third-party Python modules. These checks run in the release workflow and are independent of optional QA.
+- Version-tag pushes trigger `.github/workflows/release.yml`, which reuses normal three-version Node validation, verifies the tag commit belongs to `main`, tests and builds the package, then publishes its ZIP/checksum and changelog notes through a draft release. Reruns can finish drafts; published versions are not overwritten. Browser-store delivery remains separate.

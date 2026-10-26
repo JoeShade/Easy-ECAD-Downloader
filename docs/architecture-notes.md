@@ -65,6 +65,8 @@ This file records short implementation notes that supplement, but do not replace
 
 ## Configuration and fixture explainers
 
+`scripts/package_extension.py` owns the runtime-only ZIP, checksum and changelog-note generation. The tag-triggered release workflow reuses extension CI before packaging and publication; packaging tests use isolated Git fixtures independently of browser QA. Generated assets stay in ignored `dist/`.
+
 `manifest.json` declares the extension release version, browser permissions, injected pages and entrypoints; `package.json` declares the matching private-package version, commands and dependencies. Both are strict JSON, whose format has no comment syntax. `package-lock.json` is generated dependency metadata with matching root-package versions. Captured HTML and JSON under `tests/fixtures/` are upstream test data; test modules describe their ownership and use. These adjacent descriptions preserve valid formats. Formal approval of the review guide's in-file-explainer exception remains outstanding with the maintainer; reconsider these constraints when formats or generators change.
 - The current repository is intentionally compact; add new sources through focused adapters or distributor detection changes rather than introducing a broader application framework.
 - The manifest intentionally declares both `background.service_worker` and `background.scripts` so Chrome can run the service worker while Firefox falls back to a background document on Firefox 121+.
