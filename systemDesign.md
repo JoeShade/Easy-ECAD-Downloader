@@ -276,6 +276,7 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
   - synthesize symbol and footprint SVG previews
   - render symbol `PT` records as escaped native SVG paths, preserving source coordinates and draw order alongside pins, rectangles, `PL`/`PG`, circles, ellipses and arcs
   - preserve each symbol path, polygon, polyline, circle and ellipse's fill. White and light neutral greys take the preview background, including the pale interiors of open wipers and some MOSFET arrows. Foreground fills use dark ink, and unpainted interiors stay transparent
+  - draw round holes and thermal vias at their source positions
   - derive datasheet availability from the payload
   - escape SVG path data and coerce numeric bounds before adding margins
 - Mouser, Farnell, element14, and Newark pages:

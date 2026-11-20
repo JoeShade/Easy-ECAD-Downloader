@@ -147,6 +147,14 @@ function buildSymbolPreviewSvg(cadData) {
   return buildSvgDocument(viewBox, svgParts.join("\n"));
 }
 
+function footprintDrillSvg(cx, cy, diameter) {
+  // A fine edge keeps a freestanding locating hole visible against the
+  // background. Scale it down on small vias to retain the open center.
+  const strokeWidth = Math.min(0.3, diameter / 8);
+  const paint = `fill="${FOOTPRINT_PREVIEW_BACKGROUND}" stroke="${FOOTPRINT_PREVIEW_COPPER}" stroke-width="${strokeWidth}"`;
+  return `<circle cx="${cx}" cy="${cy}" r="${diameter / 2}" ${paint} />`;
+}
+
 function buildFootprintPreviewSvg(cadData) {
   const dataStr = cadData?.packageDetail?.dataStr;
   if (!dataStr) {
@@ -164,6 +172,8 @@ function buildFootprintPreviewSvg(cadData) {
   };
   const shapes = dataStr.shape || [];
   const svgParts = [];
+  const drills = [];
+  const copperPaint = `fill="${FOOTPRINT_PREVIEW_COPPER}" stroke="none"`;
 
   for (const line of shapes) {
     const parts = line.split("~");
@@ -199,11 +209,15 @@ function buildFootprintPreviewSvg(cadData) {
           svgParts.push(`${rect} />`);
         }
       }
-      if (holeRadius > 0) {
-        svgParts.push(
-          `<circle cx="${centerX}" cy="${centerY}" r="${holeRadius}" fill="#f8fafc" stroke="#0f172a" stroke-width="0.4" />`
-        );
+      if (holeRadius > 0) drills.push(footprintDrillSvg(centerX, centerY, 2 * holeRadius));
+    } else if (designator === "VIA" || designator === "HOLE") {
+      const x = toNumber(fields[0]);
+      const y = toNumber(fields[1]);
+      if (designator === "VIA") {
+        svgParts.push(`<circle cx="${x}" cy="${y}" r="${toNumber(fields[2]) / 2}" ${copperPaint} />`);
       }
+      const diameter = 2 * toNumber(designator === "VIA" ? fields[4] : fields[2]);
+      if (diameter > 0) drills.push(footprintDrillSvg(x, y, diameter));
     } else if (designator === "SOLIDREGION") {
       const layerId = toNumber(fields[0]);
       const path = String(fields[2] || "").trim();
@@ -248,7 +262,7 @@ function buildFootprintPreviewSvg(cadData) {
     }
   }
 
-  return buildSvgDocument(viewBox, svgParts.join("\n"), {
+  return buildSvgDocument(viewBox, [...svgParts, ...drills].join("\n"), {
     background: FOOTPRINT_PREVIEW_BACKGROUND
   });
 }
