@@ -100,18 +100,19 @@ function parseEasyedaSymbol(cadData) {
       const fields = line.split("~").slice(1);
       symbol.polylines.push({
         points: fields[0],
-        fillColor: String(fields[4] || "").toLowerCase() !== "none"
+        fill: symbolFillType(fields[4])
       });
     } else if (designator === "PG") {
       const fields = line.split("~").slice(1);
       symbol.polygons.push({
         points: fields[0],
-        fillColor: true
+        fill: symbolFillType(fields[4])
       });
     } else if (designator === "PT") {
       const fields = line.split("~").slice(1);
       symbol.paths.push({
-        paths: fields[0]
+        paths: fields[0],
+        fill: symbolFillType(fields[4])
       });
     } else if (designator === "C") {
       const fields = line.split("~").slice(1);

@@ -192,7 +192,7 @@ Those modules own:
 
 KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use a single mapped layer and convert source widths to millimetres. Circular symbol arcs derive their midpoint from the effective SVG radius and the symbol coordinate system's sweep direction.
 
-Circles and round ellipses retain foreground, background or unfilled interiors.
+Filled circles, round ellipses, paths and polygons retain foreground, background or unfilled interiors.
 
 Symbol PT export accepts absolute M/L/Z with spaces, commas or attached command letters through the shared path parser; previews retain broader native SVG support.
 

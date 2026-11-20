@@ -6,7 +6,7 @@ Notable changes are recorded here in reverse chronological order.
 
 ### Fixed
 
-- Restored pin 1 dots and switch contacts in symbol previews and preserved winding and junction dot paint in KiCad (#21–23).
+- Restored pin 1 marks and switch contacts in symbol previews and preserved winding dots and filled diode bodies and arrowheads in KiCad exports (#21–24).
 
 ## 1.1.0
 

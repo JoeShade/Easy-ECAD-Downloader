@@ -80,6 +80,8 @@ function convertSymbolToKiCad(symbol) {
     }));
 
   const arcs = [];
+  const polygons = [];
+  const toSymbolPoint = (x, y) => [pxToMm(x - symbol.bbox.x), -pxToMm(y - symbol.bbox.y)];
   for (const arc of symbol.arcs) {
     if (arc.path.length < 2 || arc.path[0].type !== "M" || arc.path[1].type !== "A") {
       continue;
@@ -132,43 +134,24 @@ function convertSymbolToKiCad(symbol) {
     });
   }
 
-  function convertPolyline(polyline, closeIfFilled) {
-    // Filled shapes repeat their first point to close the outline. Open shapes
-    // are closed only when both coordinates of the endpoints already match.
-    const rawPts = String(polyline.points || "").trim().split(/\s+/);
-    const xPoints = [];
-    const yPoints = [];
-    for (let i = 0; i < rawPts.length; i += 2) {
-      xPoints.push(pxToMm(toNumber(rawPts[i]) - symbol.bbox.x));
-      yPoints.push(-pxToMm(toNumber(rawPts[i + 1]) - symbol.bbox.y));
-    }
-    if (closeIfFilled) {
-      xPoints.push(xPoints[0]);
-      yPoints.push(yPoints[0]);
-    }
-    if (!xPoints.length || !yPoints.length) {
-      return null;
-    }
-    return {
-      points: xPoints.map((x, idx) => [x, yPoints[idx]]),
-      isClosed: xPoints[0] === xPoints[xPoints.length - 1] &&
-        yPoints[0] === yPoints[yPoints.length - 1]
-    };
+  function appendPolyline(points, fill, close) {
+    if (points.length < 2) return;
+    const first = points[0];
+    const last = points.at(-1);
+    if (close && (first[0] !== last[0] || first[1] !== last[1])) points.push(first);
+    polygons.push({ points, fill });
   }
 
-  const polygons = [];
-  for (const polyline of symbol.polylines) {
-    const poly = convertPolyline(polyline, polyline.fillColor);
-    if (poly) {
-      polygons.push(poly);
+  function convertPolyline(polyline, close) {
+    const raw = String(polyline.points || "").trim().split(/\s+/);
+    const points = [];
+    for (let i = 0; i + 1 < raw.length; i += 2) {
+      points.push(toSymbolPoint(toNumber(raw[i]), toNumber(raw[i + 1])));
     }
+    appendPolyline(points, polyline.fill, close);
   }
-  for (const polygon of symbol.polygons) {
-    const poly = convertPolyline(polygon, true);
-    if (poly) {
-      polygons.push(poly);
-    }
-  }
+  for (const line of symbol.polylines) convertPolyline(line, line.fill !== "none");
+  for (const polygon of symbol.polygons) convertPolyline(polygon, true);
 
   for (const path of symbol.paths) {
     // Reuse command parsing so absolute M/L coordinates work with spaces,
@@ -178,10 +161,7 @@ function convertSymbolToKiCad(symbol) {
     // Each M starts a separate outline. Flush it before the next move so
     // disconnected source graphics retain their independent boundaries.
     function appendSubpath() {
-      if (points.length < 2) return;
-      const [firstX, firstY] = points[0];
-      const [lastX, lastY] = points[points.length - 1];
-      polygons.push({ points, isClosed: firstX === lastX && firstY === lastY });
+      appendPolyline(points, path.fill, path.fill !== "none");
     }
     for (const step of parseSvgPath(path.paths)) {
       if (step.type === "M" || step.type === "L") {
@@ -191,7 +171,7 @@ function convertSymbolToKiCad(symbol) {
         }
         const x = step.type === "M" ? step.startX : step.posX;
         const y = step.type === "M" ? step.startY : step.posY;
-        points.push([pxToMm(x - symbol.bbox.x), -pxToMm(y - symbol.bbox.y)]);
+        points.push(toSymbolPoint(x, y));
       } else if (step.type === "Z" && points.length) {
         points.push(points[0]);
       }
@@ -267,7 +247,7 @@ ${poly.points
   .join("\n")}
   )
   (stroke (width ${KI_SYMBOL_CONFIG.defaultLineWidth}) (type default) (color 0 0 0 0))
-  (fill (type ${poly.isClosed ? "background" : "none"}))
+  (fill (type ${poly.fill}))
 )`;
 }
 
