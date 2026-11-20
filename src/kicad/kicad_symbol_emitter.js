@@ -66,7 +66,7 @@ function convertSymbolToKiCad(symbol) {
     posY: -pxToMm(circle.centerY - symbol.bbox.y),
     radius: pxToMm(circle.radius),
     strokeWidth: pxToMm(circle.strokeWidth),
-    fill: circle.fillColor ? "background" : "none"
+    fill: circle.fill
   }));
 
   const ellipses = symbol.ellipses

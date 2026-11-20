@@ -27,13 +27,15 @@ describe("reported symbol export geometry", () => {
     return convertEasyedaCadToKicad(cad, { symbol: true }).symbol.content;
   }
 
-  it("retains the TPS62160 pin-one ink alongside open switch contacts", () => {
+  it("retains the TPS62160 pin-one and HR911105A junction ink alongside open switch contacts", () => {
     const content = library([
       "E~362.5~277.5~1.5~1.5~#880000~1~0~#880000~gge2~0",
+      "E~220~-230~1~1~#880000~1~0~#880000~gge3284~0",
       "E~400~298~1~1~#880000~1~0~none~gge79~0",
+      "C~400~300~1~#000~1~0~#000~circle~0"
     ]);
     const fills = [...content.matchAll(/\(circle\b[\s\S]*?\(fill \(type (\w+)\)\)/g)].map(match => match[1]);
-    expect(fills).toEqual(["outline", "none"]);
+    expect(fills).toEqual(["outline", "outline", "outline", "none"]);
     expect(content).toContain("(center -9.53 5.71)");
     expect(content).toMatch(/\(radius 0.25\)\s+\(stroke \(width 0.254\)[\s\S]*?\(fill \(type none\)\)/);
   });

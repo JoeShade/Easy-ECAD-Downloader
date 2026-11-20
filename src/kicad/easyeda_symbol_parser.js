@@ -120,7 +120,7 @@ function parseEasyedaSymbol(cadData) {
         centerY: toNumber(fields[1]),
         radius: toNumber(fields[2]),
         strokeWidth: toNumber(fields[4]),
-        fillColor: String(fields[5] || "").toLowerCase() !== "none"
+        fill: symbolFillType(fields[6] ?? fields[5])
       });
     } else if (designator === "E") {
       const fields = line.split("~").slice(1);

@@ -130,7 +130,7 @@ function buildSymbolPreviewSvg(cadData) {
       const ellipse = designator === "E";
       const ry = ellipse ? toNumber(fields[3]) : rx;
       if (rx <= 0 || ry <= 0) continue;
-      const fill = ellipse ? symbolPreviewFill(fields[7]) : "none";
+      const fill = symbolPreviewFill(ellipse ? fields[7] : fields[6] ?? fields[5]);
       const width = toNumber(fields[ellipse ? 5 : 4]);
       const geometry = ellipse ? `ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"` :
         `circle cx="${cx}" cy="${cy}" r="${rx}"`;
