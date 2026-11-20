@@ -10,7 +10,7 @@ import {
   normalizeUrl,
   sanitizeFilenamePart
 } from "../core/preview_data.js";
-import { symbolFillType } from "../kicad/shared.js";
+import { padDrillSize, symbolFillType } from "../kicad/shared.js";
 
 const EASYEDA_API_ENDPOINT =
   "https://easyeda.com/api/products/{lcscId}/components?version=6.4.19.5";
@@ -147,12 +147,22 @@ function buildSymbolPreviewSvg(cadData) {
   return buildSvgDocument(viewBox, svgParts.join("\n"));
 }
 
-function footprintDrillSvg(cx, cy, diameter) {
+// Oval pads and slots are obrounds: two semicircular caps joined by straight
+// edges. Their width and height are measured before placement rotation.
+function footprintRectSvg(cx, cy, width, height, rounded, paint, transform) {
+  const radius = rounded ? ` rx="${Math.min(width, height) / 2}"` : "";
+  return `<rect x="${cx - width / 2}" y="${cy - height / 2}" width="${width}" height="${height}"${radius} ${paint}${transform} />`;
+}
+
+function footprintDrillSvg(cx, cy, width, height, transform = "") {
   // A fine edge keeps a freestanding locating hole visible against the
   // background. Scale it down on small vias to retain the open center.
-  const strokeWidth = Math.min(0.3, diameter / 8);
+  const strokeWidth = Math.min(0.3, Math.min(width, height) / 8);
   const paint = `fill="${FOOTPRINT_PREVIEW_BACKGROUND}" stroke="${FOOTPRINT_PREVIEW_COPPER}" stroke-width="${strokeWidth}"`;
-  return `<circle cx="${cx}" cy="${cy}" r="${diameter / 2}" ${paint} />`;
+  if (width === height) {
+    return `<circle cx="${cx}" cy="${cy}" r="${width / 2}" ${paint} />`;
+  }
+  return footprintRectSvg(cx, cy, width, height, true, paint, transform);
 }
 
 function buildFootprintPreviewSvg(cadData) {
@@ -189,27 +199,21 @@ function buildFootprintPreviewSvg(cadData) {
       const padPoints = parsePoints(fields[9]);
       const rotation = toNumber(fields[10]);
       const holeRadius = toNumber(fields[8]);
+      const transform = rotation ? ` transform="rotate(${-rotation} ${centerX} ${centerY})"` : "";
       // Oval point fields can contain axis guide points. Their visible outline
       // comes from the center, size and rotation.
       if (padPoints.length >= 3 && shape !== "OVAL" && shape !== "ELLIPSE") {
         const polygon = pointsToSvg(padPoints);
-        svgParts.push(`<polygon points="${polygon}" fill="#0f172a" stroke="none" />`);
-      } else if (shape === "ELLIPSE" || shape === "OVAL") {
-        const transform = rotation ? ` transform="rotate(${rotation} ${centerX} ${centerY})"` : "";
-        svgParts.push(
-          `<ellipse cx="${centerX}" cy="${centerY}" rx="${width / 2}" ry="${height / 2}" fill="${FOOTPRINT_PREVIEW_COPPER}" stroke="none"${transform} />`
-        );
+        svgParts.push(`<polygon points="${polygon}" ${copperPaint} />`);
+      } else if (shape === "ELLIPSE") {
+        svgParts.push(`<ellipse cx="${centerX}" cy="${centerY}" rx="${width / 2}" ry="${height / 2}" ${copperPaint}${transform} />`);
       } else {
-        const x = centerX - width / 2;
-        const y = centerY - height / 2;
-        const rect = `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${FOOTPRINT_PREVIEW_COPPER}" stroke="none"`;
-        if (rotation) {
-          svgParts.push(`${rect} transform="rotate(${rotation} ${centerX} ${centerY})" />`);
-        } else {
-          svgParts.push(`${rect} />`);
-        }
+        svgParts.push(footprintRectSvg(centerX, centerY, width, height, shape === "OVAL", copperPaint, transform));
       }
-      if (holeRadius > 0) drills.push(footprintDrillSvg(centerX, centerY, 2 * holeRadius));
+      const drill = padDrillSize(holeRadius, toNumber(fields[12]), height, width);
+      if (drill) {
+        drills.push(footprintDrillSvg(centerX, centerY, drill.width, drill.height, transform));
+      }
     } else if (designator === "VIA" || designator === "HOLE") {
       const x = toNumber(fields[0]);
       const y = toNumber(fields[1]);
@@ -217,7 +221,7 @@ function buildFootprintPreviewSvg(cadData) {
         svgParts.push(`<circle cx="${x}" cy="${y}" r="${toNumber(fields[2]) / 2}" ${copperPaint} />`);
       }
       const diameter = 2 * toNumber(designator === "VIA" ? fields[4] : fields[2]);
-      if (diameter > 0) drills.push(footprintDrillSvg(x, y, diameter));
+      if (diameter > 0) drills.push(footprintDrillSvg(x, y, diameter, diameter));
     } else if (designator === "SOLIDREGION") {
       const layerId = toNumber(fields[0]);
       const path = String(fields[2] || "").trim();

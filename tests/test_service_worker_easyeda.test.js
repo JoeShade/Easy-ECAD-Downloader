@@ -60,7 +60,7 @@ describe("service worker EasyEDA flow", () => {
       }
     });
 
-    expect(svg).toContain("<ellipse");
+    expect(svg).toContain('<rect x="9" y="17" width="2" height="8" rx="1"');
     expect(svg).not.toContain('<polygon points="10,17 10,25"');
   });
 

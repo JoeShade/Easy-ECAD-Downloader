@@ -354,6 +354,17 @@ function fpToKi(value) {
   return Number.isFinite(num) ? Math.round(num * 10 * 0.0254 * 100) / 100 : num;
 }
 
+// EasyEDA slot length includes the round ends. Both the preview and KiCad
+// use the pad's local major axis before applying its placement rotation.
+function padDrillSize(holeRadius, holeLength, padHeight, padWidth) {
+  if (!(holeRadius > 0)) return null;
+  const diameter = holeRadius * 2;
+  if (!(holeLength > 0)) return { width: diameter, height: diameter };
+  return padHeight >= padWidth
+    ? { width: diameter, height: holeLength }
+    : { width: holeLength, height: diameter };
+}
+
 export {
   EASYEDA_PIN_TYPE_MAP,
   KI_FOOTPRINT_TEMPLATES,
@@ -372,6 +383,7 @@ export {
   escapeKiCadString,
   fpToKi,
   indentLines,
+  padDrillSize,
   parseSvgPath,
   pointOnArc,
   pxToMm,

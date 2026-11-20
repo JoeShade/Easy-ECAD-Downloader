@@ -15,6 +15,7 @@ import {
   convertToMm,
   escapeKiCadString,
   fpToKi,
+  padDrillSize,
   parseSvgPath,
   quoteKiCadAtom,
   toNumber
@@ -23,20 +24,11 @@ import {
 // A nonzero holeLength denotes a slot. Its longer dimension follows the pad's
 // longer local axis, and KiCad's oval drill lists local X then local Y size.
 function drillToKi(holeRadius, holeLength, padHeight, padWidth) {
-  if (holeRadius > 0 && holeLength && holeLength !== 0) {
-    const maxDistanceHole = Math.max(holeRadius * 2, holeLength);
-    const pos0 = padHeight - maxDistanceHole;
-    const pos90 = padWidth - maxDistanceHole;
-    const maxDistance = Math.max(pos0, pos90);
-    if (maxDistance === pos0) {
-      return `(drill oval ${(holeRadius * 2).toFixed(2)} ${holeLength.toFixed(2)})`;
-    }
-    return `(drill oval ${holeLength.toFixed(2)} ${(holeRadius * 2).toFixed(2)})`;
-  }
-  if (holeRadius > 0) {
-    return `(drill ${(2 * holeRadius).toFixed(2)})`;
-  }
-  return "";
+  const size = padDrillSize(holeRadius, holeLength, padHeight, padWidth);
+  if (!size) return "";
+  return holeLength > 0
+    ? `(drill oval ${size.width.toFixed(2)} ${size.height.toFixed(2)})`
+    : `(drill ${size.width.toFixed(2)})`;
 }
 
 // Convert named scalar lengths once. Raw point/path records retain source units

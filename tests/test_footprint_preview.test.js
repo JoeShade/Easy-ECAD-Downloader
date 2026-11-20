@@ -46,7 +46,7 @@ describe("EasyEDA footprint preview geometry", () => {
     }
   });
 
-  it("shows both locating holes of the Type-C connector", () => {
+  it("shows both locating holes and the four plated shell slots of the Type-C connector", () => {
     const data = parts.C2765186;
     const pixel = rasterize(data);
     for (const record of data.shape) {
@@ -55,6 +55,13 @@ describe("EasyEDA footprint preview geometry", () => {
         const [x, y, radius] = fields.slice(1, 4).map(Number);
         expect(pixel(x, y)).toEqual(background);
         expect(pixel(x + radius + 0.5, y)).toEqual(body);
+      } else if (fields[0] === "PAD") {
+        const x = Number(fields[2]);
+        const y = Number(fields[3]);
+        const radius = Number(fields[9]);
+        const halfLength = Number(fields[13]) / 2;
+        expect(pixel(x, y + halfLength - 0.4)).toEqual(background);
+        expect(pixel(x + radius + 0.4, y)).toEqual(copper);
       }
     }
   });
