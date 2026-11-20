@@ -47,7 +47,9 @@ function regionArcInterior(start, step) {
 
 function regionPolygon(region, bbox) {
   if (region.type !== "solid" || !MARKING_LAYERS.has(region.layerId)) return "";
-  const path = region.path.trim().replace(/z/g, "Z");
+  let path = region.path.trim().replace(/z/g, "Z");
+  // Older PCB records express the contour as a plain list of coordinates.
+  if (/^[+\d.-]/.test(path)) path = `M ${path}`;
   // A compound path can encode holes. A single KiCad polygon can represent
   // one contour; accepting only supported contours keeps those holes open.
   if (/[^MLAZ\deE.+,\s-]/.test(path) || /Z\s*\S/.test(path) || path.includes("M", 1)) return "";
@@ -227,6 +229,12 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
     const startY = rect.y - kiFootprint.bbox.y;
     const width = rect.width;
     const height = rect.height;
+    if (rect.fill !== "none" && MARKING_LAYERS.has(rect.layerId)) {
+      output += `\t(fp_rect (start ${startX.toFixed(2)} ${startY.toFixed(2)})` +
+        ` (end ${(startX + width).toFixed(2)} ${(startY + height).toFixed(2)})` +
+        ` (layer ${KI_LAYERS[rect.layerId]}) (width ${rect.strokeWidth.toFixed(2)}) (fill solid))\n`;
+      continue;
+    }
     const points = [
       [startX, startY, startX + width, startY],
       [startX + width, startY, startX + width, startY + height],

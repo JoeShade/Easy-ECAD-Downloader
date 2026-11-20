@@ -190,7 +190,7 @@ Those modules own:
 - KiCad footprint text generation
 - OBJ-to-WRL conversion
 
-KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use their source layer and convert stroke widths to millimetres. Filled marking contours on silkscreen, fabrication and documentation layers become KiCad polygons. EasyEDA documentation-layer markings retain their KiCad `Cmts.User` mapping.
+KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use their source layer and convert stroke widths to millimetres. Filled marking contours on silkscreen, fabrication and documentation layers become KiCad polygons. Curved contours use sampled SVG arcs. EasyEDA documentation-layer markings retain their KiCad `Cmts.User` mapping.
 
 Symbol pins follow the signed direction and length of their source strokes. Filled circles, round ellipses, paths and polygons retain foreground, background or unfilled interiors. The emitter splits circular sweeps over 180 degrees into shorter KiCad arcs and samples elliptical sweeps before converting to symbol coordinates.
 
