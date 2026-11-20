@@ -2,6 +2,12 @@
 
 Notable changes are recorded here in reverse chronological order.
 
+## Unreleased
+
+### Fixed
+
+- Restored pin 1 dot geometry in symbol previews and KiCad exports (#21).
+
 ## 1.1.0
 
 ### Added

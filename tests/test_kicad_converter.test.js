@@ -17,6 +17,26 @@ import {
 } from "../src/kicad_converter.js";
 import { escapeKiCadString, quoteKiCadAtom, rotate } from "../src/kicad/shared.js";
 
+// These reduced records retain the reported components' EasyEDA coordinates
+// and paint fields. Assertions exercise the library text delivered to KiCad.
+describe("reported symbol export geometry", () => {
+  function library(shape, x = 400, y = 300) {
+    const cad = createCadData();
+    Object.assign(cad.dataStr.head, { x, y });
+    cad.dataStr.shape = shape;
+    return convertEasyedaCadToKicad(cad, { symbol: true }).symbol.content;
+  }
+
+  it("retains the TPS62160 pin-one ink", () => {
+    const content = library([
+      "E~362.5~277.5~1.5~1.5~#880000~1~0~#880000~gge2~0",
+    ]);
+    const fills = [...content.matchAll(/\(circle\b[\s\S]*?\(fill \(type (\w+)\)\)/g)].map(match => match[1]);
+    expect(fills).toEqual(["outline"]);
+    expect(content).toContain("(center -9.53 5.71)");
+  });
+});
+
 describe("kicad converter", () => {
   it("applies EasyEDA text styling rules to suffix-marked labels", () => {
     expect(applyTextStyle("RESET#")).toBe("~{RESET}");

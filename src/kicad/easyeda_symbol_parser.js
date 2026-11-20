@@ -4,7 +4,7 @@
  * output layer can stay focused on KiCad text generation.
  */
 
-import { parseSvgPath, toBool, toNumber } from "./shared.js";
+import { parseSvgPath, symbolFillType, toBool, toNumber } from "./shared.js";
 
 // EasyEDA separates fields with '~' and groups pin sub-records with '^^'. Keep
 // these positional wire-format details here; emitters receive named fields and
@@ -127,7 +127,8 @@ function parseEasyedaSymbol(cadData) {
         centerX: toNumber(fields[0]),
         centerY: toNumber(fields[1]),
         radiusX: toNumber(fields[2]),
-        radiusY: toNumber(fields[3])
+        radiusY: toNumber(fields[3]),
+        fill: symbolFillType(fields[7])
       });
     } else if (designator === "A") {
       const fields = line.split("~").slice(1);

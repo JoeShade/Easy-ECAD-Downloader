@@ -65,7 +65,7 @@ function convertSymbolToKiCad(symbol) {
     posX: pxToMm(circle.centerX - symbol.bbox.x),
     posY: -pxToMm(circle.centerY - symbol.bbox.y),
     radius: pxToMm(circle.radius),
-    background: circle.fillColor
+    fill: circle.fillColor ? "background" : "none"
   }));
 
   const ellipses = symbol.ellipses
@@ -74,7 +74,7 @@ function convertSymbolToKiCad(symbol) {
       posX: pxToMm(ellipse.centerX - symbol.bbox.x),
       posY: -pxToMm(ellipse.centerY - symbol.bbox.y),
       radius: pxToMm(ellipse.radiusX),
-      background: false
+      fill: ellipse.fill
     }));
 
   const arcs = [];
@@ -243,7 +243,7 @@ function exportSymbolCircle(circle) {
   (center ${circle.posX.toFixed(2)} ${circle.posY.toFixed(2)})
   (radius ${circle.radius.toFixed(2)})
   (stroke (width ${KI_SYMBOL_CONFIG.defaultLineWidth}) (type default) (color 0 0 0 0))
-  (fill (type ${circle.background ? "background" : "none"}))
+  (fill (type ${circle.fill}))
 )`;
 }
 

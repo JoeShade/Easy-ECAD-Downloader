@@ -10,6 +10,7 @@ import {
   normalizeUrl,
   sanitizeFilenamePart
 } from "../core/preview_data.js";
+import { symbolFillType } from "../kicad/shared.js";
 
 const EASYEDA_API_ENDPOINT =
   "https://easyeda.com/api/products/{lcscId}/components?version=6.4.19.5";
@@ -47,15 +48,9 @@ function escapeSvgAttribute(value) {
 }
 
 function symbolPreviewFill(value) {
-  const fill = String(value || "").trim().toLowerCase();
-  // Keep the monochrome preview: solid source paint uses the foreground;
-  // white masks underlying geometry with the popup's preview background.
-  if (fill === "white" || fill === "#fff" || fill === "#ffffff") {
-    return "#f8fafc";
-  }
-  return /^(?:#[0-9a-f]{3}(?:[0-9a-f]{3})?|black|silver|gray|maroon|red|purple|fuchsia|green|lime|olive|yellow|navy|blue|teal|aqua)$/.test(fill)
-    ? "#111827"
-    : "none";
+  const fill = symbolFillType(value);
+  if (fill === "background") return "#f8fafc";
+  return fill === "outline" ? "#111827" : "none";
 }
 
 function buildSvgDocument(viewBox, body, options = {}) {
@@ -125,12 +120,20 @@ function buildSymbolPreviewSvg(cadData) {
         // separate KiCad exporter owns its restricted CAD conversion rules.
         svgParts.push(`<path d="${escapeSvgAttribute(path)}" stroke-width="1" fill="${symbolPreviewFill(fields[4])}" />`);
       }
-    } else if (designator === "C") {
+    } else if (designator === "C" || designator === "E") {
       const fields = line.split("~").slice(1);
       const cx = toNumber(fields[0]);
       const cy = toNumber(fields[1]);
-      const radius = toNumber(fields[2]);
-      svgParts.push(`<circle cx="${cx}" cy="${cy}" r="${radius}" stroke-width="1" />`);
+      const rx = toNumber(fields[2]);
+      // EasyEDA commonly encodes round pin markers and contacts as ellipses.
+      // Their second radius shifts the stroke, width, style and fill fields.
+      const ellipse = designator === "E";
+      const ry = ellipse ? toNumber(fields[3]) : rx;
+      if (rx <= 0 || ry <= 0) continue;
+      const fill = ellipse ? symbolPreviewFill(fields[7]) : "none";
+      const geometry = ellipse ? `ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"` :
+        `circle cx="${cx}" cy="${cy}" r="${rx}"`;
+      svgParts.push(`<${geometry} stroke-width="1" fill="${fill}" />`);
     } else if (designator === "A") {
       const fields = line.split("~").slice(1);
       const path = String(fields[0] || "").trim();

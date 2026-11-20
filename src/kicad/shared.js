@@ -159,6 +159,16 @@ function pxToMm(dim) {
   return 10.0 * Number(dim) * 0.0254;
 }
 
+// The monochrome renderers distinguish foreground ink, background paint and
+// an unpainted interior.
+function symbolFillType(value) {
+  const fill = String(value || "").trim().toLowerCase();
+  if (fill === "white" || fill === "#fff" || fill === "#ffffff") return "background";
+  return /^(?:#[0-9a-f]{3}(?:[0-9a-f]{3})?|black|silver|gray|maroon|red|purple|fuchsia|green|lime|olive|yellow|navy|blue|teal|aqua)$/.test(fill)
+    ? "outline"
+    : "none";
+}
+
 function convertToMm(dim) {
   return Number(dim) * 10 * 0.0254;
 }
@@ -364,6 +374,7 @@ export {
   quoteKiCadAtom,
   rotate,
   sanitizeFields,
+  symbolFillType,
   toBool,
   toDegrees,
   toNumber

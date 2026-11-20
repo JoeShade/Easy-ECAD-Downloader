@@ -192,6 +192,8 @@ Those modules own:
 
 KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use a single mapped layer and convert source widths to millimetres. Circular symbol arcs derive their midpoint from the effective SVG radius and the symbol coordinate system's sweep direction.
 
+Circles and round ellipses retain foreground, background or unfilled interiors.
+
 Symbol PT export accepts absolute M/L/Z with spaces, commas or attached command letters through the shared path parser; previews retain broader native SVG support.
 
 Absolute PT subpaths remain separate; repeated coordinate pairs, adjacent signed numbers and exponent notation follow SVG numeric syntax. Footprint pads preserve explicit non-plated-hole flags and normalize arbitrary whitespace in custom polygon coordinates. OBJ conversion supports default-material faces and negative indices relative to the vertex list at each face, and rejects invalid geometry before WRL output.
@@ -272,8 +274,8 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
 - EasyEDA-backed pages:
   - fetch the EasyEDA CAD payload
   - synthesize symbol and footprint SVG previews
-  - render symbol `PT` records as escaped native SVG paths, preserving source coordinates and draw order alongside pins, rectangles, `PL`/`PG`, circles and arcs
-  - keep symbol `PT`/`PL`/`PG` paint local to each shape: hex and basic named solid colors use the dark foreground, white uses the preview background, and absent, `none`, transparent or unsupported paints remain unfilled; existing stroke styling stays monochrome
+  - render symbol `PT` records as escaped native SVG paths, preserving source coordinates and draw order alongside pins, rectangles, `PL`/`PG`, circles, ellipses and arcs
+  - keep symbol `PT`/`PL`/`PG` paint local to each shape: hex and basic named solid colors use the dark foreground, white uses the preview background, and absent, `none`, transparent or unsupported paints remain unfilled; existing stroke styling stays monochrome Circle and ellipse records also retain their local fill and stroke.
   - derive datasheet availability from the payload
   - escape SVG path data and coerce numeric bounds before adding margins
 - Mouser, Farnell, element14, and Newark pages:
