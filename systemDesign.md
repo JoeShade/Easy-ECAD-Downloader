@@ -275,7 +275,7 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
   - fetch the EasyEDA CAD payload
   - synthesize symbol and footprint SVG previews
   - render symbol `PT` records as escaped native SVG paths, preserving source coordinates and draw order alongside pins, rectangles, `PL`/`PG`, circles, ellipses and arcs
-  - keep symbol `PT`/`PL`/`PG` paint local to each shape: hex and basic named solid colors use the dark foreground, white uses the preview background, and absent, `none`, transparent or unsupported paints remain unfilled; existing stroke styling stays monochrome Circle and ellipse records also retain their local fill and stroke.
+  - preserve each symbol path, polygon, polyline, circle and ellipse's fill. White and light neutral greys take the preview background, including the pale interiors of open wipers and some MOSFET arrows. Foreground fills use dark ink, and unpainted interiors stay transparent
   - derive datasheet availability from the payload
   - escape SVG path data and coerce numeric bounds before adding margins
 - Mouser, Farnell, element14, and Newark pages:

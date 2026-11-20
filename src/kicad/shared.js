@@ -160,11 +160,17 @@ function pxToMm(dim) {
 }
 
 // The monochrome renderers distinguish foreground ink, background paint and
-// an unpainted interior.
+// an unpainted interior. EasyEDA also uses pale grey for open wiper markings.
 function symbolFillType(value) {
   const fill = String(value || "").trim().toLowerCase();
-  if (fill === "white" || fill === "#fff" || fill === "#ffffff") return "background";
-  return /^(?:#[0-9a-f]{3}(?:[0-9a-f]{3})?|black|silver|gray|maroon|red|purple|fuchsia|green|lime|olive|yellow|navy|blue|teal|aqua)$/.test(fill)
+  if (fill === "white") return "background";
+  if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/.test(fill)) {
+    const hex = fill.length === 4 ? fill.slice(1).replace(/./g, "$&$&") : fill.slice(1);
+    const channel = hex.slice(0, 2);
+    // Light neutral masks include #EFEFEF wipers and #FEFEFE MOSFET arrows.
+    return channel.repeat(3) === hex && parseInt(channel, 16) >= 0xe0 ? "background" : "outline";
+  }
+  return /^(?:black|silver|gray|maroon|red|purple|fuchsia|green|lime|olive|yellow|navy|blue|teal|aqua)$/.test(fill)
     ? "outline"
     : "none";
 }

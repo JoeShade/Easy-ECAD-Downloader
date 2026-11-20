@@ -6,7 +6,7 @@ Notable changes are recorded here in reverse chronological order.
 
 ### Fixed
 
-- Restored pin 1 marks and switch contacts in symbol previews and preserved winding dots and filled diode bodies and arrowheads in KiCad exports (#21–24).
+- Restored pin 1 marks and switch contacts in symbol previews, kept the Bourns trimmer wiper open, and preserved winding dots and filled diode bodies and arrowheads in KiCad exports (#21–25).
 
 ## 1.1.0
 

@@ -46,10 +46,12 @@ describe("reported symbol export geometry", () => {
       "PT~M 411 317 L 407 315 L 409 313 Z ~#880000~1~0~#880000~gge61~0~",
       "PT~M 415 313 L 411 311 L 413 309 Z ~#880000~1~0~#880000~gge64~0~",
       "PG~410 310 407 305 404 309~#880000~1~0~#880000~gge27~0",
+      "PG~-10 0 -4 2 -4 -2~#880000~1~0~#FEFEFE~gge37~0",
+      "PG~0 10 -5 12 -5 8~#880000~1~0~#EFEFEF~rep7~0",
       "PL~0 20 0 0 10 0 10 20 0 20~#880000~1~0~none~rep3~0"
     ]);
     const fills = [...content.matchAll(/\(polyline\b[\s\S]*?\(fill \(type (\w+)\)\)/g)].map(match => match[1]);
-    expect(fills).toEqual(["none", "outline", "outline", "outline", "outline"]);
+    expect(fills).toEqual(["none", "outline", "background", "background", "outline", "outline", "outline"]);
   });
 });
 

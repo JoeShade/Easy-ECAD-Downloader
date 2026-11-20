@@ -144,6 +144,16 @@ describe("EasyEDA symbol previews", () => {
     expect(alphaAt(rx)).toBeGreaterThan(150);
   });
 
+  it("retains the light interiors of the Bourns wiper and AO3400A body diode", () => {
+    const doc = preview([
+      "PL~-2 10 -7 10~#880000~1~0~none~rep6~0",
+      "PG~0 10 -5 12 -5 8~#880000~1~0~#EFEFEF~rep7~0",
+      "PG~10 -2 7 3 13 3~#880000~1~0~#FEFEFE~gge38~0"
+    ]);
+    expect([...doc.querySelectorAll("polygon")].map(polygon => polygon.getAttribute("fill")))
+      .toEqual(["#f8fafc", "#f8fafc"]);
+  });
+
   it("isolates empty/malformed paths and escapes path attributes for PT, pins and arcs", () => {
     const malicious = 'M1 2"/><image href="https://example.test/x" onload="alert(1)"/><!--&';
     const doc = preview([
