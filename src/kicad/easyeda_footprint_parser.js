@@ -51,6 +51,7 @@ function parseEasyedaFootprint(cadData) {
     circles: [],
     arcs: [],
     rectangles: [],
+    solidRegions: [],
     texts: []
   };
 
@@ -131,6 +132,12 @@ function parseEasyedaFootprint(cadData) {
       });
     } else if (designator === "RECT") {
       footprint.rectangles.push(parseFootprintRectangle(fields));
+    } else if (designator === "SOLIDREGION") {
+      footprint.solidRegions.push({
+        layerId: toNumber(fields[0]),
+        path: fields[2] || "",
+        type: (fields[3] || "solid").trim().toLowerCase()
+      });
     } else if (designator === "TEXT") {
       footprint.texts.push({
         type: fields[0] || "",

@@ -17,9 +17,60 @@ import {
   fpToKi,
   padDrillSize,
   parseSvgPath,
+  pointOnArc,
   quoteKiCadAtom,
   toNumber
 } from "./shared.js";
+
+// Silkscreen, assembly and documentation regions describe printed graphics.
+// Copper, clearance, board-edge and component-model regions have separate PCB semantics.
+const MARKING_LAYERS = new Set([3, 4, 12, 13, 14, 15]);
+
+function regionArcInterior(start, step) {
+  if (!step.radiusX || !step.radiusY || (start[0] === step.endX && start[1] === step.endY)) {
+    return [];
+  }
+  const arc = computeArc(start[0], start[1], step.radiusX, step.radiusY,
+    step.xAxisRotation, step.flagLargeArc, step.flagSweep, step.endX, step.endY);
+  // fp_poly stores vertices. Limit the chord error on the longer ellipse
+  // axis to 0.01 mm for marking-sized curves, with bounded output size.
+  const radius = convertToMm(Math.max(arc.radiusX, arc.radiusY));
+  const maxAngle = 2 * Math.acos(Math.max(-1, 1 - 0.01 / radius));
+  const count = Math.min(1024, Math.max(2, Math.ceil(Math.abs(arc.sweepAngle) / maxAngle)));
+  const interior = [];
+  for (let i = 1; i < count; i++) {
+    const point = pointOnArc(arc, i / count);
+    interior.push([point.x, point.y]);
+  }
+  return interior;
+}
+
+function regionPolygon(region, bbox) {
+  if (region.type !== "solid" || !MARKING_LAYERS.has(region.layerId)) return "";
+  const path = region.path.trim().replace(/z/g, "Z");
+  // A compound path can encode holes. A single KiCad polygon can represent
+  // one contour; accepting only supported contours keeps those holes open.
+  if (/[^MLAZ\deE.+,\s-]/.test(path) || /Z\s*\S/.test(path) || path.includes("M", 1)) return "";
+  const [start, ...steps] = parseSvgPath(path);
+  if (start?.type !== "M") return "";
+  const coordinates = [[start.startX, start.startY]];
+  for (const step of steps) {
+    if (step.type === "L") {
+      coordinates.push([step.posX, step.posY]);
+    } else if (step.type === "A") {
+      coordinates.push(...regionArcInterior(coordinates.at(-1), step), [step.endX, step.endY]);
+    }
+  }
+
+  const points = [];
+  for (const [px, py] of coordinates) {
+    const xy = `(xy ${(convertToMm(px) - bbox.x).toFixed(4)} ${(convertToMm(py) - bbox.y).toFixed(4)})`;
+    if (xy !== points.at(-1)) points.push(xy);
+  }
+  if (points.at(-1) === points[0]) points.pop();
+  if (points.length < 3) return "";
+  return `\t(fp_poly (pts ${points.join(" ")}) (layer ${KI_LAYERS[region.layerId]}) (width 0) (fill solid))\n`;
+}
 
 // A nonzero holeLength denotes a slot. Its longer dimension follows the pad's
 // longer local axis, and KiCad's oval drill lists local X then local Y size.
@@ -115,6 +166,7 @@ function convertFootprintToKiCad(footprint) {
     circles,
     arcs: footprint.arcs,
     rectangles,
+    solidRegions: footprint.solidRegions,
     texts,
     model3d
   };
@@ -152,6 +204,10 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
     .replace("{posY}", (yHigh + 4).toFixed(2))
     .replace("{packageName}", () => quoteKiCadAtom(kiFootprint.info.name));
   output += KI_FOOTPRINT_TEMPLATES.fabRef;
+
+  for (const region of kiFootprint.solidRegions) {
+    output += regionPolygon(region, kiFootprint.bbox);
+  }
 
   for (const track of kiFootprint.tracks) {
     const points = String(track.points || "").trim().split(/\s+/).map(fpToKi);
