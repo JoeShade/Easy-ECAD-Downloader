@@ -67,6 +67,15 @@ describe("EasyEDA footprint preview geometry", () => {
     }
   });
 
+  it("keeps the relay's rotated horizontal slot and round annuli visible through its body artwork", () => {
+    const pixel = rasterize(parts.C125716);
+    expect(pixel(4009, 2975)).toEqual(background);
+    expect(pixel(4005.512, 2977.5)).toEqual(copper);
+    expect(pixel(3964.961, 3025)).toEqual(background);
+    expect(pixel(3967.961, 3025)).toEqual(copper);
+    expect(pixel(3970, 3025)).toEqual(body);
+  });
+
   it("keeps the DIP notch, pin 1 dot and switch button circle above the body region", () => {
     const dip = rasterize(parts.C46749);
     expect(dip(3925.55, 2966.02)).toEqual(marking);
@@ -74,6 +83,24 @@ describe("EasyEDA footprint preview geometry", () => {
     const button = rasterize(parts.C231329);
     expect(button(4007.764, 3007)).toEqual(marking);
     expect(button(4004.614, 3007)).toEqual(body);
+  });
+
+  it("preserves uninterrupted copper across all sixteen KMS-1102NL surface pads", () => {
+    const data = parts.C19725172;
+    const pixel = rasterize(data);
+    const pads = data.shape.filter(record => record.startsWith("PAD~"));
+    expect(pads).toHaveLength(16);
+    for (const pad of pads) {
+      const [, , x, y] = pad.split("~").map(Number);
+      for (const offset of [-2, 0, 2]) expect(pixel(x, y + offset)).toEqual(copper);
+    }
+  });
+
+  it("preserves the gap between the Keystone 5015 copper pad and its silk perimeter", () => {
+    const pixel = rasterize(parts.C2906768);
+    expect(pixel(4000, 3000)).toEqual(copper);
+    expect(pixel(3993, 3000)).toEqual(background);
+    expect(pixel(3992.25, 3000)).toEqual(marking);
   });
 });
 

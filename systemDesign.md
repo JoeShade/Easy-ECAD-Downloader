@@ -190,7 +190,7 @@ Those modules own:
 - KiCad footprint text generation
 - OBJ-to-WRL conversion
 
-KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use a single mapped layer and convert source widths to millimetres.
+KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use their source layer and convert stroke widths to millimetres.
 
 Symbol pins follow the signed direction and length of their source strokes. Filled circles, round ellipses, paths and polygons retain foreground, background or unfilled interiors. The emitter splits circular sweeps over 180 degrees into shorter KiCad arcs and samples elliptical sweeps before converting to symbol coordinates.
 

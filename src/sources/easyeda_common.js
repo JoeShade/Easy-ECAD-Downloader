@@ -10,6 +10,7 @@ import {
   normalizeUrl,
   sanitizeFilenamePart
 } from "../core/preview_data.js";
+import { parseFootprintRectangle } from "../kicad/easyeda_footprint_parser.js";
 import { padDrillSize, symbolFillType } from "../kicad/shared.js";
 
 const EASYEDA_API_ENDPOINT =
@@ -182,13 +183,16 @@ function buildFootprintPreviewSvg(cadData) {
   };
   const shapes = dataStr.shape || [];
   const body = [];
+  const pinArtwork = [];
   const copper = [];
   const markings = [];
   const drills = [];
   const copperPaint = `fill="${FOOTPRINT_PREVIEW_COPPER}" stroke="none"`;
-  // Component body artwork can appear after the front markings in the payload.
+  // Component body (99) and component pin artwork (100) can appear after
+  // board geometry in the payload. Keep their cutouts and fills behind it.
   function graphicsLayer(layerId) {
     if (layerId === 99) return body;
+    if (layerId === 100) return pinArtwork;
     return markings;
   }
 
@@ -262,18 +266,14 @@ function buildFootprintPreviewSvg(cadData) {
         graphicsLayer(toNumber(fields[1])).push(`<path d="${escapeSvgAttribute(path)}" stroke-width="${strokeWidth}" />`);
       }
     } else if (designator === "RECT") {
-      const x = toNumber(fields[0]);
-      const y = toNumber(fields[1]);
-      const width = toNumber(fields[2]);
-      const height = toNumber(fields[3]);
-      const strokeWidth = toNumber(fields[4], 0.2);
-      markings.push(
-        `<rect x="${x}" y="${y}" width="${width}" height="${height}" stroke-width="${strokeWidth}" />`
+      const rect = parseFootprintRectangle(fields);
+      graphicsLayer(rect.layerId).push(
+        `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" stroke-width="${rect.strokeWidth}" />`
       );
     }
   }
 
-  return buildSvgDocument(viewBox, [...body, ...copper, ...markings, ...drills].join("\n"), {
+  return buildSvgDocument(viewBox, [...body, ...pinArtwork, ...copper, ...markings, ...drills].join("\n"), {
     background: FOOTPRINT_PREVIEW_BACKGROUND
   });
 }

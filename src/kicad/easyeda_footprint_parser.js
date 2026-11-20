@@ -6,6 +6,24 @@
 
 import { toBool, toNumber } from "./shared.js";
 
+// Standard records store layer, id, lock and stroke after the four dimensions.
+// Earlier converter inputs put stroke, id, layer and a boolean lock there.
+function parseFootprintRectangle(fields) {
+  const legacy = fields.length === 8 &&
+    (/^(?:true|false)$/i.test(fields[7]) || toNumber(fields[6]) > 1);
+  return {
+    x: toNumber(fields[0]),
+    y: toNumber(fields[1]),
+    width: toNumber(fields[2]),
+    height: toNumber(fields[3]),
+    layerId: toNumber(fields[legacy ? 6 : 4]),
+    id: fields[5] || "",
+    isLocked: toBool(fields[legacy ? 7 : 6]),
+    strokeWidth: toNumber(fields[legacy ? 4 : 7]),
+    fill: fields[8] || "none"
+  };
+}
+
 // Decode '~'-delimited source records into named fields while retaining source
 // units. The emitter converts lengths together, keeping metadata rotations in degrees.
 function parseEasyedaFootprint(cadData) {
@@ -112,16 +130,7 @@ function parseEasyedaFootprint(cadData) {
         isLocked: toBool(fields[6])
       });
     } else if (designator === "RECT") {
-      footprint.rectangles.push({
-        x: toNumber(fields[0]),
-        y: toNumber(fields[1]),
-        width: toNumber(fields[2]),
-        height: toNumber(fields[3]),
-        strokeWidth: toNumber(fields[4]),
-        id: fields[5] || "",
-        layerId: toNumber(fields[6]),
-        isLocked: toBool(fields[7])
-      });
+      footprint.rectangles.push(parseFootprintRectangle(fields));
     } else if (designator === "TEXT") {
       footprint.texts.push({
         type: fields[0] || "",
@@ -166,7 +175,7 @@ function parseEasyedaFootprint(cadData) {
   return footprint;
 }
 
-export { parseEasyedaFootprint };
+export { parseEasyedaFootprint, parseFootprintRectangle };
 
 /*
 ######################################################################################################################
