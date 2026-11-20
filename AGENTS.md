@@ -53,7 +53,7 @@ This repository is a compact browser extension that detects supported distributo
 
 ## Documentation expectations
 
-- Treat the root `README.md` as a fixed asset. Any edit, including content, formatting, links or automated rewrites, requires the user's explicit permission to change that file.
+- Treat the root `README.md` as read-only. Do not modify, delete, rename, regenerate, or reformat it unless the user explicitly requests or authorizes that specific change.
 - General requests for code review, maintenance, fixes or documentation updates do not grant permission to edit `README.md`. Record relevant changes in the other governing documents and flag proposed README updates for explicit approval.
 - Keep `docs/architecture-notes.md` short and implementation-focused.
 - Use `docs/deviations.md` only for live temporary mismatches between code and design.
