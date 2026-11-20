@@ -84,7 +84,13 @@ function findLabeledTextInPairs(pairs, expectedLabels, exact = false) {
     }
     const label = normalizeLabel(labelNode.textContent || "");
     if (hasExpectedLabel(label, normalizedExpectedLabels, exact)) {
-      return normalizeDetectedValue(valueNode.textContent);
+      // Newark places a Copy button inside the MPN value cell.
+      const value = valueNode.cloneNode(true);
+      for (const button of value.querySelectorAll('button, [role="button"]')) {
+        if (button.textContent.trim().toLowerCase() === "copy") button.remove();
+      }
+      const text = normalizeDetectedValue(value.textContent);
+      if (text) return text;
     }
   }
   return null;
@@ -92,9 +98,8 @@ function findLabeledTextInPairs(pairs, expectedLabels, exact = false) {
 
 function findDefinitionListText(expectedLabels, exact = false) {
   return findLabeledTextInPairs(
-    Array.from(document.querySelectorAll("dl"), (list) => [
-      list.querySelector("dt"),
-      list.querySelector("dd")
+    Array.from(document.querySelectorAll("dl dt"), label => [
+      label, label.nextElementSibling?.matches("dd") ? label.nextElementSibling : null
     ]),
     expectedLabels,
     exact
@@ -256,13 +261,19 @@ function parseFarnellDescriptionProductData() {
   };
 }
 
-function parseFarnellImageAltProductData() {
+function parseFarnellImageAltProductData(pathData) {
   const imageAlt = getMetaContent("property", "og:image:alt");
   const match = imageAlt?.match(/^(.+?)\s+([A-Z0-9][A-Z0-9./_+-]*)$/i);
   if (!match) {
     return null;
   }
 
+  // Some captions append the entire description after the MPN. Only the
+  // short manufacturer/MPN form can refine the identity on a product route.
+  if (pathData && match[1].toUpperCase() !== pathData.manufacturerName &&
+      match[2].toUpperCase() !== pathData.manufacturerPartNumber) {
+    return null;
+  }
   return {
     manufacturerName: normalizeDetectedValue(match[1]),
     manufacturerPartNumber: normalizeDetectedValue(match[2])
@@ -304,34 +315,58 @@ function parseFarnellPathProductData() {
   }
 }
 
+function findFarnellStructuredProduct(orderCode) {
+  if (!orderCode) return null;
+  // The order code identifies the current Product among recommendations and
+  // graph entries. Dedicated MPN and organization fields retain punctuation.
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    let data;
+    try { data = JSON.parse(script.textContent); } catch { continue; }
+    const records = [data].flat().flatMap(node => [node].concat(node?.["@graph"] || []));
+    for (const record of records) {
+      if (![record?.["@type"]].flat().includes("Product") ||
+          String(record.sku).toUpperCase() !== orderCode.toUpperCase() ||
+          typeof record.mpn !== "string" || !record.mpn.trim()) continue;
+      const manufacturer = [record.manufacturer, record.brand]
+        .map(org => typeof org === "string" ? org : org?.name)
+        .find(name => typeof name === "string" && name.trim());
+      return {
+        manufacturerPartNumber: normalizeDetectedValue(record.mpn),
+        manufacturerName: normalizeDetectedValue(manufacturer)
+      };
+    }
+  }
+  return null;
+}
+
 function findFarnellProductData() {
   const descriptionData = parseFarnellDescriptionProductData();
-  const imageAltData = parseFarnellImageAltProductData();
   const pathData = parseFarnellPathProductData();
-  const newarkHost = isNewarkHost();
+  const imageAltData = parseFarnellImageAltProductData(pathData);
+  const sourcePartNumber = findLabeledText(
+    isNewarkHost()
+      ? ["Newark Part No", "Newark No", "Order Code"]
+      : ["Order Code", "Farnell Part No", "Farnell No"],
+    true
+  ) || pathData?.sourcePartNumber || getQueryParamValue("partNumber", "productId");
+  const product = findFarnellStructuredProduct(sourcePartNumber);
 
   return {
     manufacturerName:
+      product?.manufacturerName ||
       descriptionData?.manufacturerName ||
-      imageAltData?.manufacturerName ||
       findLabeledText(["Manufacturer"], true) ||
+      imageAltData?.manufacturerName ||
       pathData?.manufacturerName ||
       null,
     manufacturerPartNumber:
+      product?.manufacturerPartNumber ||
       descriptionData?.manufacturerPartNumber ||
-      imageAltData?.manufacturerPartNumber ||
       findLabeledText(["Manufacturer Part No", "Mfr. Part #"], true) ||
+      imageAltData?.manufacturerPartNumber ||
       pathData?.manufacturerPartNumber ||
       null,
-    sourcePartNumber:
-      findLabeledText(
-        newarkHost
-          ? ["Newark Part No", "Newark No", "Order Code"]
-          : ["Order Code", "Farnell Part No", "Farnell No"],
-        true
-      ) ||
-      pathData?.sourcePartNumber ||
-      getQueryParamValue("partNumber", "productId")
+    sourcePartNumber
   };
 }
 

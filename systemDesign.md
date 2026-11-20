@@ -8,7 +8,7 @@ The extension supports three provider flows:
 
 - EasyEDA-backed JLCPCB and LCSC pages
 - Mouser pages that expose the SamacSys / Component Search Engine ECAD button
-- Farnell, element14, and Newark pages that expose the Supplyframe / SamacSys ECAD link
+- Farnell, element14, and Newark pages with a Supplyframe / SamacSys ECAD link or sufficient product metadata to construct the lookup
 
 The repository remains intentionally compact. If code and design diverge, update one of them in the same change.
 
@@ -40,7 +40,7 @@ Developer-only Chrome/KiCad automation lives under `tests/headless-qa/`; real Fi
 - The content script is injected only on matching JLCPCB, LCSC, Mouser, Farnell, element14, and Newark pages.
 - EasyEDA-backed pages expose an LCSC-style part id such as `C12345`.
 - Mouser support depends on the ECAD button `#lnk_CadModel[data-testid="ProductInfoECAD"]`.
-- Farnell, element14, and Newark support depend on a Supplyframe / SamacSys link exposed in the `ECAD / MCAD` section.
+- Farnell, element14, and Newark lookups use the Supplyframe / SamacSys link in the `ECAD / MCAD` section when available and otherwise draw on product metadata.
 - The content script returns a generic part context, not a provider-specific ad hoc message shape.
 - EasyEDA previews are generated locally from CAD payload primitives.
 - SamacSys distributor previews come from SamacSys JSON preview endpoints and are displayed as PNG data URLs.
@@ -108,7 +108,7 @@ Owns page inspection only:
 - detect Farnell, element14, or Newark SamacSys ECAD availability from the `Supply Frame Models Link`
 - read provider-specific source part metadata from the page DOM
 - reconstruct the Mouser SamacSys entry URL from `loadPartDiv(...)`
-- reconstruct the Farnell, element14, or Newark SamacSys entry URL from the Supplyframe link metadata
+- reconstruct the Farnell, element14, or Newark SamacSys entry URL from the Supplyframe link or distributor product metadata
 - reply to popup-originated `GET_PART_CONTEXT` requests
 
 It remains a DOM-reading boundary with no network or download logic.
@@ -262,11 +262,11 @@ Product-navigation transport errors block the browser component workflow before 
 
 EasyEDA identity is recomputed for each request from the current HTTP(S) URL and labelled product fields. URL evidence requires an apex or `www` JLCPCB/LCSC host, no credentials or nonstandard port, and `/partdetail/<slug>/C<digits>` or `/product-detail/C<digits>.html` respectively. Routes are case-insensitive with one optional trailing slash; IDs remain strings with uppercase `C` and at least three digits. Slugs, queries, fragments, canonical links and JSON-LD are not identity sources.
 
-The EasyEDA-only field reader accepts complete values under exact normalized `JLCPCB Part #` or `LCSC Part #` labels. It reads adjacent `dt`/`dd` pairs, including modern div-wrapped pairs, and two-cell `th`/`td` rows in `table.tableInfoWrap`, within `main` or otherwise the body. On LCSC, plain product-summary tables also qualify when their own accepted rows contain an exact `LCSC Part #` label and a complete catalogue ID. Visibility and ownership exclusions apply before that qualification; unanchored tables and nested-table rows cannot supply manufacturer metadata. Hidden/inert, nested, navigation/footer/aside, recommendation/related and differently linked product fields are excluded. Invalid fields do not suppress later valid ones. Shared SamacSys readers are unchanged.
+The EasyEDA-only field reader accepts complete values under exact normalized `JLCPCB Part #` or `LCSC Part #` labels. It reads adjacent `dt`/`dd` pairs, including modern div-wrapped pairs, and two-cell `th`/`td` rows in `table.tableInfoWrap`, within `main` or otherwise the body. On LCSC, plain product-summary tables also qualify when their own accepted rows contain an exact `LCSC Part #` label and a complete catalogue ID. Visibility and ownership exclusions apply before that qualification; unanchored tables and nested-table rows cannot supply manufacturer metadata. Hidden/inert, nested, navigation/footer/aside, recommendation/related and differently linked product fields are excluded. Invalid fields do not suppress later valid ones.
 
 One distinct ID is accepted; duplicates agree and conflicting URL/field IDs return the existing empty context, disabling previews and export. The whole-page text fallback is removed. Manufacturer metadata uses only exact normalized `Mfr. Part #` (including `MFR.Part #`) and `MPN` labels in those same supported fields. Values remain strings with punctuation, case, leading zeros and internal spaces preserved; repeated agreeing MPNs are deduplicated and conflicting MPNs are omitted. URL-derived contexts require an agreeing catalogue field before attaching an MPN. An unavailable MPN does not block previews or export for a valid catalogue identity; EasyEDA lookups continue to use the LCSC id. No identity is cached, and no network validation, observers or retries are added.
 
-Farnell-family description parsing uses whitespace-delimited hyphens as field separators, preserving internal hyphens in manufacturer names and part numbers. Malformed percent escapes in product paths leave the other page-field and ECAD-link fallbacks available.
+On Farnell-family sites the SamacSys link supplies the lookup identity when present. A structured Product record matching the distributor order code supplies the exact MPN and manufacturer. Product descriptions use whitespace-delimited hyphens as field separators, preserving internal hyphens. On product routes, the detector checks image captions against the route before using them as identity evidence. Malformed percent escapes in product paths leave the other page-field and ECAD-link fallbacks available.
 
 ### 5.2 Request previews
 

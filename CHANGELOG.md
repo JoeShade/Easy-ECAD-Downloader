@@ -10,6 +10,7 @@ Notable changes are recorded here in reverse chronological order.
 - Corrected coil curvature, capacitor lead direction and the current-sensing loop in exported symbols (#26–28).
 - Restored footprint preview details including thermal vias, locating holes, oval shell slots, DIP notches, pin 1 marks, switch outlines and solid pads (#29–32).
 - Preserved filled footprint markings on their source layers, including terminal arrows, polarity marks and curved package fills (#33–34).
+- Corrected Newark part detection for the Same Sky SJ1-3533NG audio jack (#35).
 
 ## 1.1.0
 
