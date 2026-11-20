@@ -181,9 +181,16 @@ function buildFootprintPreviewSvg(cadData) {
     height: (height > 0 ? height : 120) + pad * 2
   };
   const shapes = dataStr.shape || [];
-  const svgParts = [];
+  const body = [];
+  const copper = [];
+  const markings = [];
   const drills = [];
   const copperPaint = `fill="${FOOTPRINT_PREVIEW_COPPER}" stroke="none"`;
+  // Component body artwork can appear after the front markings in the payload.
+  function graphicsLayer(layerId) {
+    if (layerId === 99) return body;
+    return markings;
+  }
 
   for (const line of shapes) {
     const parts = line.split("~");
@@ -204,11 +211,11 @@ function buildFootprintPreviewSvg(cadData) {
       // comes from the center, size and rotation.
       if (padPoints.length >= 3 && shape !== "OVAL" && shape !== "ELLIPSE") {
         const polygon = pointsToSvg(padPoints);
-        svgParts.push(`<polygon points="${polygon}" ${copperPaint} />`);
+        copper.push(`<polygon points="${polygon}" ${copperPaint} />`);
       } else if (shape === "ELLIPSE") {
-        svgParts.push(`<ellipse cx="${centerX}" cy="${centerY}" rx="${width / 2}" ry="${height / 2}" ${copperPaint}${transform} />`);
+        copper.push(`<ellipse cx="${centerX}" cy="${centerY}" rx="${width / 2}" ry="${height / 2}" ${copperPaint}${transform} />`);
       } else {
-        svgParts.push(footprintRectSvg(centerX, centerY, width, height, shape === "OVAL", copperPaint, transform));
+        copper.push(footprintRectSvg(centerX, centerY, width, height, shape === "OVAL", copperPaint, transform));
       }
       const drill = padDrillSize(holeRadius, toNumber(fields[12]), height, width);
       if (drill) {
@@ -218,7 +225,7 @@ function buildFootprintPreviewSvg(cadData) {
       const x = toNumber(fields[0]);
       const y = toNumber(fields[1]);
       if (designator === "VIA") {
-        svgParts.push(`<circle cx="${x}" cy="${y}" r="${toNumber(fields[2]) / 2}" ${copperPaint} />`);
+        copper.push(`<circle cx="${x}" cy="${y}" r="${toNumber(fields[2]) / 2}" ${copperPaint} />`);
       }
       const diameter = 2 * toNumber(designator === "VIA" ? fields[4] : fields[2]);
       if (diameter > 0) drills.push(footprintDrillSvg(x, y, diameter, diameter));
@@ -232,27 +239,27 @@ function buildFootprintPreviewSvg(cadData) {
           : layerId === 99
             ? FOOTPRINT_PREVIEW_BODY
             : FOOTPRINT_PREVIEW_COPPER;
-        svgParts.push(`<path d="${escapeSvgAttribute(path)}" fill="${fill}" stroke="none" />`);
+        graphicsLayer(layerId).push(`<path d="${escapeSvgAttribute(path)}" fill="${fill}" stroke="none" />`);
       }
     } else if (designator === "TRACK") {
       const strokeWidth = toNumber(fields[0], 0.2);
       const points = pointsToSvg(parsePoints(fields[3]));
       if (points) {
-        svgParts.push(`<polyline points="${points}" stroke-width="${strokeWidth}" />`);
+        graphicsLayer(toNumber(fields[1])).push(`<polyline points="${points}" stroke-width="${strokeWidth}" />`);
       }
     } else if (designator === "CIRCLE") {
       const cx = toNumber(fields[0]);
       const cy = toNumber(fields[1]);
       const radius = toNumber(fields[2]);
       const strokeWidth = toNumber(fields[3], 0.2);
-      svgParts.push(
+      graphicsLayer(toNumber(fields[4])).push(
         `<circle cx="${cx}" cy="${cy}" r="${radius}" stroke-width="${strokeWidth}" />`
       );
     } else if (designator === "ARC") {
       const strokeWidth = toNumber(fields[0], 0.2);
       const path = String(fields[3] || "").trim();
       if (path) {
-        svgParts.push(`<path d="${escapeSvgAttribute(path)}" stroke-width="${strokeWidth}" />`);
+        graphicsLayer(toNumber(fields[1])).push(`<path d="${escapeSvgAttribute(path)}" stroke-width="${strokeWidth}" />`);
       }
     } else if (designator === "RECT") {
       const x = toNumber(fields[0]);
@@ -260,13 +267,13 @@ function buildFootprintPreviewSvg(cadData) {
       const width = toNumber(fields[2]);
       const height = toNumber(fields[3]);
       const strokeWidth = toNumber(fields[4], 0.2);
-      svgParts.push(
+      markings.push(
         `<rect x="${x}" y="${y}" width="${width}" height="${height}" stroke-width="${strokeWidth}" />`
       );
     }
   }
 
-  return buildSvgDocument(viewBox, [...svgParts, ...drills].join("\n"), {
+  return buildSvgDocument(viewBox, [...body, ...copper, ...markings, ...drills].join("\n"), {
     background: FOOTPRINT_PREVIEW_BACKGROUND
   });
 }

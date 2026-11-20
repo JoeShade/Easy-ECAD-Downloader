@@ -8,7 +8,7 @@ Notable changes are recorded here in reverse chronological order.
 
 - Restored pin 1 marks and switch contacts in symbol previews, kept the Bourns trimmer wiper open, and preserved winding dots and filled diode bodies and arrowheads in KiCad exports (#21–25).
 - Corrected coil curvature, capacitor lead direction and the current-sensing loop in exported symbols (#26–28).
-- Restored footprint preview details including pad drills, locating holes and oval shell slots (#29–30).
+- Restored footprint preview details including pad drills, oval shell slots, DIP notches, pin 1 marks and switch outlines (#29–31).
 
 ## 1.1.0
 

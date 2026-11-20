@@ -10,6 +10,7 @@ import parts from "./fixtures/footprint_preview_29_32.json";
 
 const background = [248, 250, 252];
 const copper = [15, 23, 42];
+const marking = [17, 24, 39];
 const body = [203, 213, 225];
 
 // Sample the final composite in source coordinates so an occluded shape
@@ -64,6 +65,15 @@ describe("EasyEDA footprint preview geometry", () => {
         expect(pixel(x + radius + 0.4, y)).toEqual(copper);
       }
     }
+  });
+
+  it("keeps the DIP notch, pin 1 dot and switch button circle above the body region", () => {
+    const dip = rasterize(parts.C46749);
+    expect(dip(3925.55, 2966.02)).toEqual(marking);
+    expect(dip(3926.16, 2972.49)).toEqual(marking);
+    const button = rasterize(parts.C231329);
+    expect(button(4007.764, 3007)).toEqual(marking);
+    expect(button(4004.614, 3007)).toEqual(body);
   });
 });
 
