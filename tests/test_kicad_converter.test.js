@@ -53,6 +53,22 @@ describe("reported symbol export geometry", () => {
     const fills = [...content.matchAll(/\(polyline\b[\s\S]*?\(fill \(type (\w+)\)\)/g)].map(match => match[1]);
     expect(fills).toEqual(["none", "outline", "background", "background", "outline", "outline", "outline"]);
   });
+
+  it("bows opposing KMS-1102NL elliptical windings toward the core", () => {
+    const content = library([
+      "A~M 374 265 A 3 2.5 0 1 1 374 270~~#8D2323~1~0~none~gge151~0",
+      "A~M 386 265 A 3 2.5 0 1 0 386 270~~#8D2323~1~0~none~gge178~0",
+      "A~M 415 244 A 2.5 3 0 1 0 420 244~~#8D2323~1~0~none~gge220~0"
+    ], 0, 0);
+    const outlines = [...content.matchAll(/\(pts([\s\S]*?)\n\s*\)/g)].map(match =>
+      [...match[1].matchAll(/\(xy ([\d.-]+) ([\d.-]+)\)/g)].map(point => point.slice(1).map(Number))
+    );
+    // Three source units at the crown of each elliptical arc equal 0.762 mm.
+    const [left, right, top] = outlines;
+    expect(Math.max(...left.map(([x]) => x)) - left[0][0]).toBeCloseTo(0.762, 1);
+    expect(right[0][0] - Math.min(...right.map(([x]) => x))).toBeCloseTo(0.762, 1);
+    expect(top[0][1] - Math.min(...top.map(([, y]) => y))).toBeCloseTo(0.762, 1);
+  });
 });
 
 describe("kicad converter", () => {

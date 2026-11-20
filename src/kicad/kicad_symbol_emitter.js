@@ -12,17 +12,16 @@ import {
   applyPinNameStyle,
   computeArc,
   escapeKiCadString,
-  getMiddleArcPos,
   indentLines,
   parseSvgPath,
+  pointOnArc,
   pxToMm,
   sanitizeFields,
-  toDegrees,
   toNumber
 } from "./shared.js";
 
 // Translate source positions to millimetres around the symbol origin. KiCad's
-// symbol Y axis points upward, so positions and arc sweep directions both flip.
+// symbol Y axis points upward, so evaluate SVG geometry before reflecting it.
 function convertSymbolToKiCad(symbol) {
   const pins = symbol.pins.map((pin) => {
     const pinLengthRaw = String(pin.pinPath.path || "").split("h").pop();
@@ -89,49 +88,40 @@ function convertSymbolToKiCad(symbol) {
     const move = arc.path[0];
     const ellipseArc = arc.path[1];
 
-    const startX = pxToMm(move.startX - symbol.bbox.x);
-    const startY = -pxToMm(move.startY - symbol.bbox.y);
-    const endX = pxToMm(ellipseArc.endX - symbol.bbox.x);
-    const endY = -pxToMm(ellipseArc.endY - symbol.bbox.y);
-    const arcInfo = computeArc(
-      startX,
-      startY,
-      pxToMm(ellipseArc.radiusX),
-      pxToMm(ellipseArc.radiusY),
+    const start = toSymbolPoint(move.startX, move.startY);
+    const end = toSymbolPoint(ellipseArc.endX, ellipseArc.endY);
+    if (start[0] === end[0] && start[1] === end[1]) continue;
+    if (!ellipseArc.radiusX || !ellipseArc.radiusY) {
+      polygons.push({ points: [start, end], fill: "none" });
+      continue;
+    }
+    const geometry = computeArc(
+      move.startX, move.startY,
+      ellipseArc.radiusX, ellipseArc.radiusY,
       ellipseArc.xAxisRotation,
       ellipseArc.flagLargeArc,
-      !ellipseArc.flagSweep,
-      endX,
-      endY
+      ellipseArc.flagSweep,
+      ellipseArc.endX, ellipseArc.endY
     );
-
-    // SVG expands undersized circular radii to connect the endpoints. The
-    // computed center therefore determines the effective radius of that circle.
-    // Unequal source radii retain the existing circular approximation.
-    const radius = Math.abs(ellipseArc.radiusX) === Math.abs(ellipseArc.radiusY)
-      ? Math.hypot(startX - arcInfo.cx, startY - arcInfo.cy)
-      : pxToMm(Math.max(ellipseArc.radiusX, ellipseArc.radiusY));
-    const startAngle = toDegrees(Math.atan2(startY - arcInfo.cy, startX - arcInfo.cx));
-    // computeArc returns the legacy footprint angle sign. Reverse it here to
-    // sample the symbol's middle point on the SVG-selected side of the circle.
-    const endAngle = startAngle - arcInfo.angleExtent;
-    const middle = getMiddleArcPos(
-      arcInfo.cx,
-      arcInfo.cy,
-      radius,
-      startAngle,
-      endAngle
-    );
-
-    arcs.push({
-      startX,
-      startY,
-      middleX: middle.middleX,
-      middleY: middle.middleY,
-      endX,
-      endY,
-      fill: arc.fillColor
-    });
+    const pointAt = fraction => {
+      const point = pointOnArc(geometry, fraction);
+      return toSymbolPoint(point.x, point.y);
+    };
+    if (geometry.radiusX !== geometry.radiusY || arc.fill !== "none") {
+      // KiCad symbol arcs are circular. Sample an ellipse to within 0.01 mm
+      // chord error; a painted arc uses one closed outline for its whole fill.
+      const radius = pxToMm(Math.max(geometry.radiusX, geometry.radiusY));
+      const step = Math.min(Math.PI / 8, 2 * Math.acos(Math.max(0, 1 - 0.01 / radius)));
+      const count = Math.min(4096, Math.max(2, Math.ceil(Math.abs(geometry.sweepAngle) / step)));
+      const points = [start];
+      for (let i = 1; i < count; i++) points.push(pointAt(i / count));
+      points.push(end);
+      if (arc.fill !== "none") points.push(start);
+      polygons.push({ points, fill: arc.fill });
+    } else {
+      const middle = pointAt(0.5);
+      arcs.push({ startX: start[0], startY: start[1], middleX: middle[0], middleY: middle[1], endX: end[0], endY: end[1] });
+    }
   }
 
   function appendPolyline(points, fill, close) {
@@ -235,7 +225,7 @@ function exportSymbolArc(arc) {
   (mid ${arc.middleX.toFixed(2)} ${arc.middleY.toFixed(2)})
   (end ${arc.endX.toFixed(2)} ${arc.endY.toFixed(2)})
   (stroke (width ${KI_SYMBOL_CONFIG.defaultLineWidth}) (type default) (color 0 0 0 0))
-  (fill (type ${arc.fill ? "background" : "none"}))
+  (fill (type none))
 )`;
 }
 

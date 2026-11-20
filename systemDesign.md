@@ -190,15 +190,15 @@ Those modules own:
 - KiCad footprint text generation
 - OBJ-to-WRL conversion
 
-KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use a single mapped layer and convert source widths to millimetres. Circular symbol arcs derive their midpoint from the effective SVG radius and the symbol coordinate system's sweep direction.
+KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use a single mapped layer and convert source widths to millimetres.
 
-Filled circles, round ellipses, paths and polygons retain foreground, background or unfilled interiors.
+Filled circles, round ellipses, paths and polygons retain foreground, background or unfilled interiors. The emitter samples elliptical sweeps before converting to symbol coordinates.
 
 Symbol PT export accepts absolute M/L/Z with spaces, commas or attached command letters through the shared path parser; previews retain broader native SVG support.
 
 Absolute PT subpaths remain separate; repeated coordinate pairs, adjacent signed numbers and exponent notation follow SVG numeric syntax. Footprint pads preserve explicit non-plated-hole flags and normalize arbitrary whitespace in custom polygon coordinates. OBJ conversion supports default-material faces and negative indices relative to the vertex list at each face, and rejects invalid geometry before WRL output.
 
-Remaining symbol-export fidelity defects include omitted noncircular ellipses and curved/relative PT paths, plus circular approximation of unequal-radii arc records. Native SVG previews accept broader geometry, so preview appearance alone does not establish exported-symbol fidelity. These remain unresolved review findings.
+Symbol export still omits noncircular `E` primitives and has limited support for curved or relative `PT` paths.
 
 Mouser parts do not flow through this converter for symbol or footprint generation because the upstream ZIP already contains KiCad assets.
 
@@ -306,7 +306,7 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
 - Rewriting escapes KiCad strings and changes only the first existing model-path token, preserving transforms, geometry and existing multiple-block behavior. When no selected model has a usable receipt, all stale `(model ...)` blocks are removed.
 - EasyEDA OBJ-to-WRL conversion recenters model geometry in X/Y and bottom-aligns the model in Z. Footprint model offsets use millimetres; WRL geometry separately uses KiCad's 2.54 mm per WRL unit convention.
 - Library-mode datasheet exports are written under `<libraryRoot>/datasheets/`.
-- EasyEDA symbol export still has fidelity limitations for noncircular ellipses, curved/relative `PT` paths and unequal-radii arcs. Native SVG previews support broader path geometry than CAD export, so preview appearance alone does not establish exported-symbol fidelity.
+- EasyEDA symbol export still has fidelity limitations for noncircular `E` primitives and curved or relative `PT` paths.
 
 ### 5.4 Export SamacSys distributor parts
 

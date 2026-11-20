@@ -296,31 +296,29 @@ function computeArc(
   const vx = rx !== 0 ? (-x1 - cx1) / rx : 0;
   const vy = ry !== 0 ? (-y1 - cy1) / ry : 0;
 
-  const n = Math.sqrt((ux * ux + uy * uy) * (vx * vx + vy * vy));
-  const p = ux * vx + uy * vy;
-  const signAngle = ux * vy - uy * vx < 0 ? -1 : 1;
-  let angleExtent = n !== 0 ? toDegrees(signAngle * Math.acos(p / n)) : 719;
-  if (!sweepFlag && angleExtent > 0) {
-    angleExtent -= 360;
-  } else if (sweepFlag && angleExtent < 0) {
-    angleExtent += 360;
+  let sweepAngle = Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+  if (!sweepFlag && sweepAngle > 0) {
+    sweepAngle -= 2 * Math.PI;
+  } else if (sweepFlag && sweepAngle < 0) {
+    sweepAngle += 2 * Math.PI;
   }
-
-  const extentSign = angleExtent < 0 ? 1 : -1;
-  // KiCad's legacy footprint arc angle uses the opposite sign to SVG's sweep.
-  angleExtent = (Math.abs(angleExtent) % 360) * extentSign;
-
-  return { cx, cy, angleExtent };
+  return {
+    cx, cy, radiusX: rx, radiusY: ry, rotation: phi,
+    startAngle: Math.atan2(uy, ux), sweepAngle,
+    // Legacy KiCad footprint angles have the opposite sign to SVG's sweep.
+    angleExtent: -toDegrees(sweepAngle)
+  };
 }
 
-// Modern symbol arcs identify a point halfway around a circular sweep instead
-// of storing a center and angle; averaging these angles supplies that third point.
-function getMiddleArcPos(centerX, centerY, radius, angleStart, angleEnd) {
-  const middleX =
-    centerX + radius * Math.cos(((angleStart + angleEnd) / 2) * (Math.PI / 180));
-  const middleY =
-    centerY + radius * Math.sin(((angleStart + angleEnd) / 2) * (Math.PI / 180));
-  return { middleX, middleY };
+// Evaluate the rotated ellipse in source coordinates before any KiCad axis flip.
+function pointOnArc(arc, fraction) {
+  const angle = arc.startAngle + fraction * arc.sweepAngle;
+  const x = arc.radiusX * Math.cos(angle);
+  const y = arc.radiusY * Math.sin(angle);
+  return {
+    x: arc.cx + x * Math.cos(arc.rotation) - y * Math.sin(arc.rotation),
+    y: arc.cy + x * Math.sin(arc.rotation) + y * Math.cos(arc.rotation)
+  };
 }
 
 function indentLines(text, indentLevel) {
@@ -373,9 +371,9 @@ export {
   convertToMm,
   escapeKiCadString,
   fpToKi,
-  getMiddleArcPos,
   indentLines,
   parseSvgPath,
+  pointOnArc,
   pxToMm,
   quoteKiCadAtom,
   rotate,

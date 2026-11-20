@@ -137,7 +137,8 @@ function parseEasyedaSymbol(cadData) {
       const fields = line.split("~").slice(1);
       symbol.arcs.push({
         path: parseSvgPath(fields[0]),
-        fillColor: String(fields[4] || "").toLowerCase() !== "none"
+        // A records include an SVG helper path between the geometry and stroke.
+        fill: symbolFillType(fields[5] ?? fields[4])
       });
     }
   }
