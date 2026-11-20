@@ -54,6 +54,21 @@ describe("reported symbol export geometry", () => {
     expect(fills).toEqual(["none", "outline", "background", "background", "outline", "outline", "outline"]);
   });
 
+  it("keeps the ACS758 major arcs joined through their full circular sensing loop", () => {
+    const content = library([
+      "A~M 382 300 A 2.062 2.062 0 1 0 382 301~~#8D2323~1~0~none~gge8~0",
+      "A~M 384 300 A 4.016 4.016 0 1 0 384 301~~#8D2323~1~0~none~gge9~0"
+    ]);
+    const arcs = [...content.matchAll(/\(arc\s+\(start ([^)]+)\)\s+\(mid ([^)]+)\)\s+\(end ([^)]+)\)/g)];
+    expect(arcs.map(match => match.slice(1))).toEqual([
+      ["-4.57 0.00", "-5.14 0.39", "-5.60 -0.13"],
+      ["-5.60 -0.13", "-5.14 -0.65", "-4.57 -0.25"],
+      ["-4.06 0.00", "-5.14 0.89", "-6.10 -0.13"],
+      ["-6.10 -0.13", "-5.14 -1.15", "-4.06 -0.25"]
+    ]);
+    expect(content.match(/\(fill \(type none\)\)/g)).toHaveLength(4);
+  });
+
   it("bows opposing KMS-1102NL elliptical windings toward the core", () => {
     const content = library([
       "A~M 374 265 A 3 2.5 0 1 1 374 270~~#8D2323~1~0~none~gge151~0",

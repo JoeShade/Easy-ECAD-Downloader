@@ -130,8 +130,16 @@ function convertSymbolToKiCad(symbol) {
       if (arc.fill !== "none") points.push(start);
       polygons.push({ points, fill: arc.fill });
     } else {
-      const middle = pointAt(0.5);
-      arcs.push({ startX: start[0], startY: start[1], middleX: middle[0], middleY: middle[1], endX: end[0], endY: end[1] });
+      // KiCad 10 plots a symbol arc as its minor sweep. Splitting major arcs
+      // preserves nearly complete loops and both sides of a winding.
+      const count = Math.ceil(Math.abs(geometry.sweepAngle) / Math.PI);
+      let from = start;
+      for (let i = 0; i < count; i++) {
+        const middle = pointAt((i + 0.5) / count);
+        const to = i + 1 === count ? end : pointAt((i + 1) / count);
+        arcs.push({ startX: from[0], startY: from[1], middleX: middle[0], middleY: middle[1], endX: to[0], endY: to[1] });
+        from = to;
+      }
     }
   }
 
