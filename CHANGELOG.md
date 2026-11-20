@@ -19,6 +19,7 @@ Notable changes are recorded here in reverse chronological order.
 
 ### Fixed
 
+- Corrected the Firefox add-on ID to `easyeda-downloader@joeshade.local` for updates to the existing AMO listing; packaging rejects missing or different IDs.
 - Fixed issue #18: read LCSC manufacturer part numbers from plain product-summary tables anchored by their own complete LCSC catalogue ID, excluding hidden, nested, recommendation and unrelated-product fields.
 - Fixed issue #15: preserve internal hyphens in Farnell, element14 and Newark manufacturer names and part numbers when reading product descriptions; malformed percent escapes in product paths now allow other metadata fallbacks.
 - Preserved non-plated footprint holes, normalized custom-pad whitespace, kept independent symbol path subpaths separate, and accepted SVG signed/exponent numeric syntax.

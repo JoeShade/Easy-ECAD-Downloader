@@ -102,7 +102,7 @@ npm run package
 
 The command creates `dist/easy-ecad-downloader-<version>.zip`, its `.zip.sha256` checksum, and `dist/release-notes.md`. These generated files are ignored by Git. The ZIP contains the tracked `manifest.json`, `LICENSE`, runtime JavaScript/HTML/CSS/PNG files under `src/`, and PNG icons under `icons/`. New runtime files must be added to Git's index to be included. Working-tree edits to tracked files are included; text line endings and ZIP metadata are normalized. Developer tooling, QA data, documentation and installation instructions are excluded.
 
-Packaging checks the manifest, package and both root lockfile versions, the matching changelog section, manifest entrypoints, static module/HTML/CSS references, and the final ZIP inventory and bytes. Release notes use only the matching changelog section and link repository documents at the version tag.
+Packaging checks the manifest, package and both root lockfile versions, the matching changelog section, manifest entrypoints, static module/HTML/CSS references, and the final ZIP inventory and bytes. The Firefox add-on ID must remain `easyeda-downloader@joeshade.local` to match the existing AMO listing; packaging rejects missing or different IDs. Release notes use only the matching changelog section and link repository documents at the version tag.
 
 To publish, merge the version and changelog changes into `main`, then create and push an annotated tag matching the manifest version. For example, for version 1.1.0:
 

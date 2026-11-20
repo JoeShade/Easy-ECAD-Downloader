@@ -17,6 +17,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_NAME = "easy-ecad-downloader"
+AMO_ADDON_ID = "easyeda-downloader@joeshade.local"
 REPOSITORY = "JoeShade/Easy-ECAD-Downloader"
 TEXT_SUFFIXES = {".js", ".html", ".css", ".json"}
 
@@ -32,6 +33,10 @@ def release_version(root: Path, tag: str | None) -> str:
         raise ValueError("The manifest version is outside browser extension limits.")
     if manifest.get("manifest_version") != 3 or package.get("name") != PACKAGE_NAME:
         raise ValueError("Expected the Easy ECAD Manifest V3 package.")
+    # AMO updates must retain the ID of the existing published listing.
+    addon_id = manifest.get("browser_specific_settings", {}).get("gecko", {}).get("id")
+    if addon_id != AMO_ADDON_ID:
+        raise ValueError(f"Firefox add-on ID must match the AMO listing: {AMO_ADDON_ID}")
     versions = [package.get("version"), lock.get("version"),
                 lock.get("packages", {}).get("", {}).get("version")]
     if any(value != version for value in versions):
