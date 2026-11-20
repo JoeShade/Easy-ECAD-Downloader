@@ -6,11 +6,15 @@ Notable changes are recorded here in reverse chronological order.
 
 ### Fixed
 
-- Restored pin 1 marks and switch contacts in symbol previews, kept the Bourns trimmer wiper open, and preserved winding dots and filled diode bodies and arrowheads in KiCad exports (#21–25).
-- Corrected coil curvature, capacitor lead direction and the current-sensing loop in exported symbols (#26–28).
-- Restored footprint preview details including thermal vias, locating holes, oval shell slots, DIP notches, pin 1 marks, switch outlines and solid pads (#29–32).
-- Preserved filled footprint markings on their source layers, including terminal arrows, polarity marks and curved package fills (#33–34).
-- Corrected Newark part detection for the Same Sky SJ1-3533NG audio jack (#35).
+- Fixed missing pin markers and switch contacts in symbol previews by drawing ellipses with their source radii and stroke widths.
+- Fixed hollow dots and arrowheads in KiCad exports and unwanted solid fills in symbol previews by distinguishing foreground, background and unfilled shapes.
+- Fixed windings that curved the wrong way and loops that broke in KiCad by following each elliptical arc’s source sweep and splitting circular arcs longer than 180 degrees into shorter arcs.
+- Fixed gaps between pins and symbol bodies by deriving each pin’s direction and length from its drawn path.
+- Fixed missing holes and slots that appeared round in footprint previews by drawing drill openings over the copper and using each slot’s length, width and rotation.
+- Fixed hidden footprint markings and apparent gaps in solid pads by drawing package artwork behind copper and silkscreen.
+- Fixed oversized rectangular footprint outlines by reading the stroke width separately from the layer number.
+- Fixed missing polarity marks, arrows and package fills in footprint exports by converting filled contours, including curved edges, into polygons on the corresponding KiCad layers.
+- Fixed incorrect manufacturer part numbers on Farnell, element14 and Newark pages by matching the distributor order code to the product record and checking fallback image captions against the product URL.
 
 ## 1.1.0
 
