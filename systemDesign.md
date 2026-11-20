@@ -192,7 +192,7 @@ Those modules own:
 
 KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use a single mapped layer and convert source widths to millimetres.
 
-Filled circles, round ellipses, paths and polygons retain foreground, background or unfilled interiors. The emitter samples elliptical sweeps before converting to symbol coordinates.
+Symbol pins follow the signed direction and length of their source strokes. Filled circles, round ellipses, paths and polygons retain foreground, background or unfilled interiors. The emitter samples elliptical sweeps before converting to symbol coordinates.
 
 Symbol PT export accepts absolute M/L/Z with spaces, commas or attached command letters through the shared path parser; previews retain broader native SVG support.
 

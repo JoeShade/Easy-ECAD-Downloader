@@ -69,6 +69,17 @@ describe("reported symbol export geometry", () => {
     expect(right[0][0] - Math.min(...right.map(([x]) => x))).toBeCloseTo(0.762, 1);
     expect(top[0][1] - Math.min(...top.map(([, y]) => y))).toBeCloseTo(0.762, 1);
   });
+
+  it("points both mirrored Nichicon pins from their electrical anchors to the capacitor plates", () => {
+    const content = library([
+      "P~show~0~2~400~320~90~gge8~0^^400~320^^M 400 320 v -19~#8D2323",
+      "P~show~0~1~400~280~270~gge15~0^^400~280^^M 400 280 v 17~#8D2323",
+      "PL~390 297 410 297~#8D2323~1~0~none~gge7~0"
+    ]);
+    expect(content).toMatch(/\(at 0.00 -5.08 90\)\s+\(length 4.83\)/);
+    expect(content).toMatch(/\(at 0.00 5.08 270\)\s+\(length 4.32\)/);
+    expect(content).toContain("(xy -2.54 0.76)");
+  });
 });
 
 describe("kicad converter", () => {

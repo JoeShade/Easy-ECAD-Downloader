@@ -20,13 +20,25 @@ import {
   toNumber
 } from "./shared.js";
 
+// Pin paths run from the electrical anchor toward the body. Mirrored parts can
+// retain the original rotation metadata even after this signed segment flips.
+function pinGeometry(pin) {
+  const segment = pin.pinPath.path.match(/([hv])\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*$/i);
+  if (!segment) return { length: 0, orientation: (180 + pin.settings.rotation) % 360 };
+  const command = segment[1];
+  const horizontal = command.toLowerCase() === "h";
+  const anchor = horizontal ? pin.settings.posX : pin.settings.posY;
+  const delta = Number(segment[2]) - (command === command.toUpperCase() ? anchor : 0);
+  return {
+    length: pxToMm(Math.abs(delta)),
+    orientation: horizontal ? (delta < 0 ? 180 : 0) : (delta < 0 ? 90 : 270)
+  };
+}
+
 // Translate source positions to millimetres around the symbol origin. KiCad's
 // symbol Y axis points upward, so evaluate SVG geometry before reflecting it.
 function convertSymbolToKiCad(symbol) {
   const pins = symbol.pins.map((pin) => {
-    const pinLengthRaw = String(pin.pinPath.path || "").split("h").pop();
-    const pinLength = Math.abs(toNumber(pinLengthRaw));
-
     const style = pin.dot.isDisplayed && pin.clock.isDisplayed
       ? "inverted_clock"
       : pin.dot.isDisplayed
@@ -41,9 +53,8 @@ function convertSymbolToKiCad(symbol) {
       name: pin.name.text.replace(/\s+/g, ""),
       number: String(pin.settings.number || "").replace(/\s+/g, ""),
       style,
-      length: pxToMm(pinLength),
       type,
-      orientation: (180 + pin.settings.rotation) % 360,
+      ...pinGeometry(pin),
       posX: pxToMm(toNumber(pin.settings.posX) - toNumber(symbol.bbox.x)),
       posY: -pxToMm(toNumber(pin.settings.posY) - toNumber(symbol.bbox.y))
     };

@@ -63,7 +63,7 @@ function parseEasyedaSymbol(cadData) {
           isLocked: toBool(settingsFields[7])
         },
         pinPath: {
-          path: String(pinPathFields[0] || "").replace(/v/g, "h"),
+          path: pinPathFields[0] || "",
           color: pinPathFields[1] || ""
         },
         name: {
