@@ -65,6 +65,7 @@ function convertSymbolToKiCad(symbol) {
     posX: pxToMm(circle.centerX - symbol.bbox.x),
     posY: -pxToMm(circle.centerY - symbol.bbox.y),
     radius: pxToMm(circle.radius),
+    strokeWidth: pxToMm(circle.strokeWidth),
     fill: circle.fillColor ? "background" : "none"
   }));
 
@@ -74,6 +75,7 @@ function convertSymbolToKiCad(symbol) {
       posX: pxToMm(ellipse.centerX - symbol.bbox.x),
       posY: -pxToMm(ellipse.centerY - symbol.bbox.y),
       radius: pxToMm(ellipse.radiusX),
+      strokeWidth: pxToMm(ellipse.strokeWidth),
       fill: ellipse.fill
     }));
 
@@ -242,7 +244,7 @@ function exportSymbolCircle(circle) {
   return `(circle
   (center ${circle.posX.toFixed(2)} ${circle.posY.toFixed(2)})
   (radius ${circle.radius.toFixed(2)})
-  (stroke (width ${KI_SYMBOL_CONFIG.defaultLineWidth}) (type default) (color 0 0 0 0))
+  (stroke (width ${circle.strokeWidth.toFixed(3)}) (type default) (color 0 0 0 0))
   (fill (type ${circle.fill}))
 )`;
 }

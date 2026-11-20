@@ -119,6 +119,7 @@ function parseEasyedaSymbol(cadData) {
         centerX: toNumber(fields[0]),
         centerY: toNumber(fields[1]),
         radius: toNumber(fields[2]),
+        strokeWidth: toNumber(fields[4]),
         fillColor: String(fields[5] || "").toLowerCase() !== "none"
       });
     } else if (designator === "E") {
@@ -128,6 +129,7 @@ function parseEasyedaSymbol(cadData) {
         centerY: toNumber(fields[1]),
         radiusX: toNumber(fields[2]),
         radiusY: toNumber(fields[3]),
+        strokeWidth: toNumber(fields[5]),
         fill: symbolFillType(fields[7])
       });
     } else if (designator === "A") {

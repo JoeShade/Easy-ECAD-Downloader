@@ -126,6 +126,7 @@ describe("EasyEDA symbol previews", () => {
 
   it.each([
     ["TPS62160DSGR pin 1", "E~362.5~277.5~1.5~1.5~#880000~1~0~#880000~gge2~0", 255],
+    ["SKRKAEE020 switch contact", "E~390~290~2.5~2.5~#880000~1~0~none~gge63~0", 0],
     ["unequal ellipse", "E~30~40~3~1~#880000~1~0~none", 0]
   ])("draws the outline and source fill of the %s", (_part, record, centerAlpha) => {
     const [, cx, cy, rx, ry] = record.split("~").map(Number);

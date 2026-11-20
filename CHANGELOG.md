@@ -6,7 +6,7 @@ Notable changes are recorded here in reverse chronological order.
 
 ### Fixed
 
-- Restored pin 1 dot geometry in symbol previews and KiCad exports (#21).
+- Restored pin 1 dot and switch contact geometry in symbol previews and KiCad exports (#21–22).
 
 ## 1.1.0
 

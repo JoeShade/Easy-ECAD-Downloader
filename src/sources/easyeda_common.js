@@ -131,9 +131,10 @@ function buildSymbolPreviewSvg(cadData) {
       const ry = ellipse ? toNumber(fields[3]) : rx;
       if (rx <= 0 || ry <= 0) continue;
       const fill = ellipse ? symbolPreviewFill(fields[7]) : "none";
+      const width = toNumber(fields[ellipse ? 5 : 4]);
       const geometry = ellipse ? `ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"` :
         `circle cx="${cx}" cy="${cy}" r="${rx}"`;
-      svgParts.push(`<${geometry} stroke-width="1" fill="${fill}" />`);
+      svgParts.push(`<${geometry} stroke-width="${width > 0 ? width : 1}" fill="${fill}" />`);
     } else if (designator === "A") {
       const fields = line.split("~").slice(1);
       const path = String(fields[0] || "").trim();
