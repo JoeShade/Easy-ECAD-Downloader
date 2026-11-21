@@ -329,8 +329,8 @@ On Farnell-family sites the SamacSys link supplies the lookup identity when pres
   - `3D/*.stp` and `3D/*.step`
   - optional `3D/*.wrl`
 - Upstream entry, metadata, preview and ZIP destinations require HTTPS on `componentsearchengine.com` or its subdomains at the standard port, with empty URL credentials. The relay example validates each redirect and clears forwarded credentials on origin changes.
-- Direct Chrome fetches validate initial targets and the final metadata URL, but automatic preview/ZIP redirects can still consume responses outside that host rule. [docs/deviations.md](docs/deviations.md) records this open enforcement gap.
-- ZIP extraction verifies directory/header/data bounds, declared lengths and CRC-32, and limits total expanded bytes to 256 MiB. Encrypted, multi-disk and ZIP64 metadata produce explicit unsupported-format errors.
+- Direct Chrome fetches validate initial targets and final response URLs for metadata, previews and ZIPs. Chrome controls the intermediate redirect requests. [docs/deviations.md](docs/deviations.md) records this open enforcement gap.
+- ZIP extraction verifies directory/header/data bounds, declared lengths and CRC-32, and limits total expanded bytes to 256 MiB. Members are read sequentially and stored entries require matching sizes before allocation. Encrypted, multi-disk and ZIP64 metadata produce explicit unsupported-format errors.
 - Loose-file mode downloads the extracted files directly into Downloads.
 - Library mode repackages the extracted assets into the current KiCad structure:
   - symbol library merge into `<libraryRoot>/<libraryName>.kicad_sym`

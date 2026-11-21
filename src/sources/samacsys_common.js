@@ -169,7 +169,14 @@ function createSamacsysFetchImpl(
   } = {}
 ) {
   if (!isFirefoxRuntime(userAgent) || !proxyBaseUrl) {
-    return (url, options) => fetchImpl(ensureSamacsysUrl(url), options);
+    return async (url, options) => {
+      const requestUrl = ensureSamacsysUrl(url);
+      const response = await fetchImpl(requestUrl, options);
+      // Native Fetch follows distributor redirects. Verify the resolved URL
+      // before adapters read the body or act on an authentication challenge.
+      ensureSamacsysUrl(response.url || requestUrl);
+      return response;
+    };
   }
 
   return async (url, options = {}) => {

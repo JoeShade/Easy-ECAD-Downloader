@@ -90,9 +90,18 @@ async function readZipEntry(bytes, view, metadata) {
   );
 
   let data;
-  if (metadata.compressionMethod === 0) data = new Uint8Array(compressedBytes);
-  else if (metadata.compressionMethod === 8) data = await inflateRaw(compressedBytes, metadata.uncompressedSize);
-  else throw new Error(`ZIP compression method ${metadata.compressionMethod} is not supported for ${metadata.name}.`);
+  if (metadata.compressionMethod === 0) {
+    // Stored files have identical compressed and expanded lengths. Check the
+    // size covered by the archive budget before allocating the returned copy.
+    if (compressedBytes.length !== metadata.uncompressedSize) {
+      throw new Error(`ZIP entry integrity check failed for ${metadata.name}.`);
+    }
+    data = new Uint8Array(compressedBytes);
+  } else if (metadata.compressionMethod === 8) {
+    data = await inflateRaw(compressedBytes, metadata.uncompressedSize);
+  } else {
+    throw new Error(`ZIP compression method ${metadata.compressionMethod} is not supported for ${metadata.name}.`);
+  }
   if (data.byteLength !== metadata.uncompressedSize || crc32(data) !== metadata.crc) {
     throw new Error(`ZIP entry integrity check failed for ${metadata.name}.`);
   }
@@ -161,7 +170,13 @@ export async function readZipEntries(buffer) {
   }
   if (offset !== centralDirectoryEnd) throw new Error("ZIP central directory length is inconsistent.");
 
-  return Promise.all(metadata.map((entry) => readZipEntry(bytes, view, entry)));
+  // Each inflate stream owns native buffers in addition to its output bytes.
+  // Finish one member at a time to bound those buffers across a large directory.
+  const entries = [];
+  for (const entry of metadata) {
+    entries.push(await readZipEntry(bytes, view, entry));
+  }
+  return entries;
 }
 /*
 ######################################################################################################################

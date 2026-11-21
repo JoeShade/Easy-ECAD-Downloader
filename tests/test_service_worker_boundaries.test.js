@@ -104,6 +104,16 @@ describe("SamacSys request destinations", () => {
     expect(requested.searchParams.get("tok")).toBe("value&more");
     expect(requested.searchParams.get("partID")).toBe("1");
   });
+
+  it("checks the resolved URL before accepting a direct response", async () => {
+    const url = "https://ms.componentsearchengine.com/symbol.php";
+    const approved = { url: "https://componentsearchengine.com/symbol.php" };
+    const fetchImpl = vi.fn().mockResolvedValueOnce(approved)
+      .mockResolvedValueOnce({ url: "https://other.example.test/symbol.php" });
+    const request = createSamacsysFetchImpl(fetchImpl, { userAgent: "Chrome" });
+    await expect(request(url)).resolves.toBe(approved);
+    await expect(request(url)).rejects.toThrow("SamacSys request URL");
+  });
 });
 
 describe("shared library writes", () => {
