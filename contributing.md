@@ -85,11 +85,11 @@ Use `README.md` for the operator-facing overview. Use `systemDesign.md` for the 
 
 ## CI and delivery requirements
 
-CI runs on pushes and pull requests with the three Node validation jobs, skipping the QA browser download. The separate `Optional QA harness` workflow runs only through manual `workflow_dispatch` and offers offline checks on Node 24 and Python 3.10. Local validation establishes the local working tree's results.
+CI runs three Node validation jobs and **Verify extension package** on pushes and pull requests. The packaging job uses Python 3.10 to lint and test the packager and build the runtime ZIP. To reproduce it locally, install the Ruff pin from `tests/headless-qa/requirements-lint.txt`, run `python -m ruff check scripts tests/test_package_extension.py`, then `npm run package:test` and `npm run package`. The separate `Optional QA harness` workflow offers manual offline checks on Node 24 and Python 3.10.
 
 Version-tag pushes publish the unpacked-extension ZIP and SHA-256 checksum to GitHub Releases through the `Release` workflow. Browser-store publication is managed separately by the maintainer.
 
-Routine lint checks JavaScript, including harness source, without executing the harness. QA Python lint is available through the optional workflow or `npm run qa:lint`. Dedicated lint for PowerShell, HTML/CSS, workflow YAML and the local `.agents` matrix scripts remains outside routine CI. Matrix helper Ruff/unit checks are optional developer checks.
+Routine lint covers JavaScript and the Python packager and its tests. The optional QA workflow includes Ruff and unit checks for both the harness and the matrix scripts. Dedicated PowerShell, HTML/CSS and workflow YAML lint remains a coverage gap.
 
 ## Packaging and GitHub Releases
 

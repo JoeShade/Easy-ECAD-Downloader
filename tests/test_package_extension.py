@@ -132,6 +132,19 @@ class PackageTests(unittest.TestCase):
                 self.git("add", name)
         self.assertFalse(self.output.exists())
 
+    def test_required_extension_entrypoints_must_be_declared(self):
+        for section, field in [("background", "service_worker"), ("background", "scripts"),
+                               ("action", "default_popup"), ("options_ui", "page"),
+                               ("content_scripts", "js")]:
+            with self.subTest(section=section, field=field):
+                changed = json.loads(json.dumps(self.manifest))
+                owner = changed[section][0] if section == "content_scripts" else changed[section]
+                del owner[field]
+                self.write_json("manifest.json", changed)
+                with self.assertRaisesRegex(ValueError, "entrypoint"):
+                    self.build()
+                self.assertFalse(self.output.exists())
+
     def test_missing_or_duplicate_changelog_version_stops_packaging(self):
         for changelog in ["## 1.0.0\nOld only\n", "## 1.1.0\nOne\n## 1.1.0\nTwo\n", "## 1.1.0\n"]:
             with self.subTest(changelog=changelog):
