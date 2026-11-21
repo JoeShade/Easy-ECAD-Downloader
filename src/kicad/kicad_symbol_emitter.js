@@ -15,20 +15,24 @@ import {
   indentLines,
   parseSvgPath,
   pointOnArc,
-  pxToMm,
+  convertToMm as pxToMm,
   sanitizeFields,
   toNumber
 } from "./shared.js";
 
-// Pin paths run from the electrical anchor toward the body. Mirrored parts can
-// retain the original rotation metadata even after this signed segment flips.
+// EasyEDA can draw a pin stroke in either order. KiCad starts at the electrical
+// anchor and points toward the body, so measure to the farther stroke endpoint.
 function pinGeometry(pin) {
   const segment = pin.pinPath.path.match(/([hv])\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*$/i);
   if (!segment) return { length: 0, orientation: (180 + pin.settings.rotation) % 360 };
   const command = segment[1];
   const horizontal = command.toLowerCase() === "h";
   const anchor = horizontal ? pin.settings.posX : pin.settings.posY;
-  const delta = Number(segment[2]) - (command === command.toUpperCase() ? anchor : 0);
+  const [move] = parseSvgPath(pin.pinPath.path);
+  const start = move?.type === "M" ? (horizontal ? move.startX : move.startY) : anchor;
+  const end = Number(segment[2]) + (command === command.toLowerCase() ? start : 0);
+  const body = Math.abs(start - anchor) > Math.abs(end - anchor) ? start : end;
+  const delta = body - anchor;
   return {
     length: pxToMm(Math.abs(delta)),
     orientation: horizontal ? (delta < 0 ? 180 : 0) : (delta < 0 ? 90 : 270)

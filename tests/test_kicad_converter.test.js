@@ -95,6 +95,25 @@ describe("reported symbol export geometry", () => {
     expect(content).toMatch(/\(at 0.00 5.08 270\)\s+\(length 4.32\)/);
     expect(content).toContain("(xy -2.54 0.76)");
   });
+
+  it("connects both RC0201FR-0710KL pins when their strokes start at the resistor body", () => {
+    // C106225's source rectangle spans x=390..410; each stroke ends at its
+    // electrical anchor. KiCad draws each pin inward from that anchor.
+    const content = library([
+      "R~390~296~~~20~8~#A00000~1~0~none~gge3~0",
+      "P~show~0~2~420~300~0~gge4~0^^420~300^^M 410 300 h 10~#800",
+      "P~show~0~1~380~300~180~gge11~0^^380~300^^M 390 300 h -10~#800"
+    ]);
+    expect(content).toContain("(start -2.54 1.02)");
+    expect(content).toContain("(end 2.54 -1.02)");
+    expect(content).toMatch(/\(at 5.08 0.00 180\)\s+\(length 2.54\)/);
+    expect(content).toMatch(/\(at -5.08 0.00 0\)\s+\(length 2.54\)/);
+  });
+
+  it("connects reversed vertical strokes with an absolute endpoint", () => {
+    const content = library(["P~show~0~1~400~320~90~pin~0^^400~320^^M400,301V320~#800"]);
+    expect(content).toMatch(/\(at 0.00 -5.08 90\)\s+\(length 4.83\)/);
+  });
 });
 
 describe("kicad converter", () => {
@@ -177,6 +196,25 @@ describe("kicad converter", () => {
     expect(footprint.content).not.toContain('NaN');
   });
 
+  it.each([
+    ["TRACK~1~3~~100 200 110 200 120~track"],
+    ["TRACK~1~3~~100 200 bad 200~track"],
+    ["PAD~POLYGON~100~200~10~10~1~~1~0~~0~pad"],
+    ["PAD~POLYGON~100~200~10~10~1~~1~0~100 195 105 205 95~0~pad"]
+  ])("rejects incomplete or nonnumeric footprint point lists: %s", record => {
+    const cad = createCadData();
+    cad.packageDetail.dataStr.shape = [record];
+    expect(() => convertEasyedaCadToKicad(cad, { footprint: true })).toThrow(/coordinate/i);
+  });
+
+  it("rounds footprint coordinates after subtracting the source origin", () => {
+    const cad = createCadData();
+    cad.packageDetail.dataStr.head.x = 4000.01;
+    cad.packageDetail.dataStr.shape = ["TRACK~1~3~~4000.01 200 4000.025 210"];
+    const { footprint } = convertEasyedaCadToKicad(cad, { footprint: true });
+    expect(footprint.content).toContain("(fp_line (start 0.00 0.00) (end 0.00 2.54)");
+  });
+
   it("escapes upstream strings without changing KiCad expression boundaries", () => {
     const cad = createCadData();
     cad.dataStr.head.c_para.name = 'Logic "Buffer"\\A';
@@ -249,6 +287,33 @@ describe("kicad converter", () => {
 
     expect(spaced).toBe(compact);
     expect(spaced).toContain('(fp_arc (start 2.54 0.00) (end 5.08 0.00) (angle -180.00)');
+  });
+
+  it("exports flat and elliptical footprint arcs along their SVG contours", () => {
+    const cad = createCadData();
+    cad.packageDetail.dataStr.shape = [
+      "ARC~1~3~~M100 200 A0 5 0 0 1 110 200 A5 0 0 0 1 120 200",
+      "ARC~1~4~~M100 200 A10 5 0 0 1 120 200",
+      "ARC~1~3~~M125 200 A5 5 0 0 1 125 200"
+    ];
+    const { footprint } = convertEasyedaCadToKicad(cad, { footprint: true });
+    expect(footprint.content).not.toContain("(fp_arc");
+    expect(footprint.content).toContain("(fp_line (start 0.00 0.00) (end 2.54 0.00) (layer F.SilkS) (width 0.25))");
+    expect(footprint.content).toContain("(fp_line (start 2.54 0.00) (end 5.08 0.00) (layer F.SilkS) (width 0.25))");
+    const ellipse = footprint.content.split("\n").filter(line => line.includes("(layer B.SilkS)"));
+    expect(ellipse.length).toBeGreaterThan(2);
+    expect(ellipse[0]).toContain("(start 0.00 0.00)");
+    expect(ellipse.at(-1)).toContain("(end 5.08 0.00)");
+    const ys = ellipse.map(line => Number(line.match(/\(end [\d.-]+ ([\d.-]+)\)/)[1]));
+    expect(Math.min(...ys)).toBeCloseTo(-1.27, 1);
+  });
+
+  it("preserves the closing stroke of a closed footprint arc", () => {
+    const cad = createCadData();
+    cad.packageDetail.dataStr.shape = ["ARC~1~3~~M100 200 A10 10 0 0 1 120 200 Z"];
+    const { footprint } = convertEasyedaCadToKicad(cad, { footprint: true });
+    expect(footprint.content).toContain("(angle -180.00)");
+    expect(footprint.content).toContain("(fp_line (start 5.08 0.00) (end 0.00 0.00)");
   });
 
   it("keeps an open polyline unfilled when only its endpoint X coordinates match", () => {

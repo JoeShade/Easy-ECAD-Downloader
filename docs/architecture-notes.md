@@ -61,7 +61,7 @@ This file records short implementation notes that supplement, but do not replace
 - Direct browser fetch redirects remain a destination-enforcement gap recorded in `docs/deviations.md`. Multi-asset SamacSys archives also retain first-footprint/first-model association assumptions; arbitrary asset pairing needs independent source fixtures before those rules can change safely.
 - The repository-owned ZIP reader supports stored/deflate classic single-disk archives, verifies member integrity and limits aggregate expanded bytes to 256 MiB.
 - Converter identifiers follow KiCad library-ID restrictions; display properties are escaped separately. Footprint geometry uses one KiCad layer per graphic, and source lengths convert to millimetres.
-- Symbol export samples unequal-radii arcs. Noncircular ellipse primitives and curved or relative PT paths still have limited export support.
+- Symbol pin direction follows the body endpoint relative to the electrical anchor. Symbol and footprint exports sample unequal-radii arcs. Footprint previews preserve filled rectangles and numeric legacy solid regions. Noncircular ellipse primitives and curved or relative PT paths still have limited export support.
 
 ## Configuration and fixture explainers
 

@@ -190,9 +190,9 @@ Those modules own:
 - KiCad footprint text generation
 - OBJ-to-WRL conversion
 
-KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use their source layer and convert stroke widths to millimetres. Filled marking contours on silkscreen, fabrication and documentation layers become KiCad polygons. Curved contours use sampled SVG arcs. EasyEDA documentation-layer markings retain their KiCad `Cmts.User` mapping.
+KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use their source layer and convert stroke widths to millimetres. Filled marking contours on silkscreen, fabrication and documentation layers become KiCad polygons. Curved contours use sampled SVG arcs. Footprint arcs preserve repeated segments and closure, approximate unequal radii with bounded line segments, and treat zero-radius arcs as straight lines. Track and custom-pad coordinates require complete numeric pairs. EasyEDA documentation-layer markings retain their KiCad `Cmts.User` mapping.
 
-Symbol pins follow the signed direction and length of their source strokes. Filled circles, round ellipses, paths and polygons retain foreground, background or unfilled interiors. The emitter splits circular sweeps over 180 degrees into shorter KiCad arcs and samples elliptical sweeps before converting to symbol coordinates.
+Symbol pins point from the electrical anchor toward the body endpoint, whether the source stroke starts or ends at that anchor. Filled circles, round ellipses, paths and polygons retain foreground, background or unfilled interiors. The emitter splits circular sweeps over 180 degrees into shorter KiCad arcs and samples elliptical sweeps before converting to symbol coordinates.
 
 Symbol PT export accepts absolute M/L/Z with spaces, commas or attached command letters through the shared path parser; previews retain broader native SVG support.
 

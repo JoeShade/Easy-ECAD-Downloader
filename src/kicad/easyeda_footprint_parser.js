@@ -6,6 +6,13 @@
 
 import { toBool, toNumber } from "./shared.js";
 
+// Older regions store just x/y pairs. An SVG moveto followed by more pairs
+// draws the same contour, so both the preview and KiCad read one path format.
+function footprintRegionPath(value) {
+  const path = String(value || "").trim();
+  return /^[+\d.-]/.test(path) ? `M ${path}` : path;
+}
+
 // Standard records store layer, id, lock and stroke after the four dimensions.
 // Earlier converter inputs put stroke, id, layer and a boolean lock there.
 function parseFootprintRectangle(fields) {
@@ -135,7 +142,7 @@ function parseEasyedaFootprint(cadData) {
     } else if (designator === "SOLIDREGION") {
       footprint.solidRegions.push({
         layerId: toNumber(fields[0]),
-        path: fields[2] || "",
+        path: footprintRegionPath(fields[2]),
         type: (fields[3] || "solid").trim().toLowerCase()
       });
     } else if (designator === "TEXT") {
@@ -182,7 +189,7 @@ function parseEasyedaFootprint(cadData) {
   return footprint;
 }
 
-export { parseEasyedaFootprint, parseFootprintRectangle };
+export { footprintRegionPath, parseEasyedaFootprint, parseFootprintRectangle };
 
 /*
 ######################################################################################################################

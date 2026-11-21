@@ -6,6 +6,8 @@ Notable changes are recorded here in reverse chronological order.
 
 ### Fixed
 
+- Fixed resistor pins pointing away from the symbol body when EasyEDA drew a pin stroke toward its electrical connection.
+- Fixed missing footprint preview fills and distorted elliptical footprint arcs. Incomplete track and custom-pad coordinates now fail conversion before KiCad receives malformed points.
 - Fixed distributor misidentification across site boundaries.
 - Fixed missing pin markers and switch contacts in symbol previews by drawing ellipses with their source radii and stroke widths.
 - Fixed hollow dots and arrowheads in KiCad exports and unwanted solid fills in symbol previews by distinguishing foreground, background and unfilled shapes.

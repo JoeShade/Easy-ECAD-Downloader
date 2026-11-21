@@ -8,7 +8,6 @@ const KI_SYMBOL_LIB_VERSION = "20211014";
 const KI_SYMBOL_GENERATOR = "Easy ECAD Downloader";
 
 const KI_SYMBOL_CONFIG = {
-  pinLength: 2.54,
   pinNameSize: 1.27,
   pinNumSize: 1.27,
   propertyFontSize: 1.27,
@@ -155,8 +154,8 @@ function applyPinNameStyle(pinName) {
 }
 
 // One EasyEDA drawing unit is ten mils (0.254 mm).
-function pxToMm(dim) {
-  return 10.0 * Number(dim) * 0.0254;
+function convertToMm(dim) {
+  return Number(dim) * 10 * 0.0254;
 }
 
 // The monochrome renderers distinguish foreground ink, background paint and
@@ -173,10 +172,6 @@ function symbolFillType(value) {
   return /^(?:black|silver|gray|maroon|red|purple|fuchsia|green|lime|olive|yellow|navy|blue|teal|aqua)$/.test(fill)
     ? "outline"
     : "none";
-}
-
-function convertToMm(dim) {
-  return Number(dim) * 10 * 0.0254;
 }
 
 // Read the absolute move, line, elliptical-arc and close commands used by the
@@ -335,9 +330,6 @@ function indentLines(text, indentLevel) {
 // EasyEDA rotations in the 0..360 range become KiCad's signed -180..180 range.
 function angleToKi(rotation) {
   const value = toNumber(rotation);
-  if (!Number.isFinite(value)) {
-    return "";
-  }
   return value > 180 ? -(360 - value) : value;
 }
 
@@ -347,11 +339,6 @@ function rotate(x, y, degrees) {
     x: x * Math.cos(radians) - y * Math.sin(radians),
     y: x * Math.sin(radians) + y * Math.cos(radians)
   };
-}
-
-function fpToKi(value) {
-  const num = toNumber(value);
-  return Number.isFinite(num) ? Math.round(num * 10 * 0.0254 * 100) / 100 : num;
 }
 
 // EasyEDA slot length includes the round ends. Both the preview and KiCad
@@ -381,12 +368,10 @@ export {
   computeArc,
   convertToMm,
   escapeKiCadString,
-  fpToKi,
   indentLines,
   padDrillSize,
   parseSvgPath,
   pointOnArc,
-  pxToMm,
   quoteKiCadAtom,
   rotate,
   sanitizeFields,

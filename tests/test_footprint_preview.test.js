@@ -102,6 +102,25 @@ describe("EasyEDA footprint preview geometry", () => {
     expect(pixel(3993, 3000)).toEqual(background);
     expect(pixel(3992.25, 3000)).toEqual(marking);
   });
+
+  it("paints the interior of a filled silkscreen rectangle and preserves hollow outlines", () => {
+    const pixel = rasterize({
+      BBox: { x: 0, y: 0, width: 30, height: 10 },
+      shape: ["RECT~0~0~10~10~3~solid-rect~0~0~solid", "RECT~20~0~10~10~3~open-rect~0~1~none"]
+    });
+    expect(pixel(5, 5)).toEqual(marking);
+    expect(pixel(25, 5)).toEqual(background);
+    expect(pixel(20, 5)).toEqual(marking);
+  });
+
+  it("fills the same marking for coordinate-list and SVG region records", () => {
+    const pixel = rasterize({
+      BBox: { x: 0, y: 0, width: 30, height: 10 },
+      shape: ["SOLIDREGION~3~~0 0 10 0 10 10 0 10~solid", "SOLIDREGION~3~~M20 0L30 0 30 10 20 10Z~solid"]
+    });
+    expect(pixel(5, 5)).toEqual(copper);
+    expect(pixel(25, 5)).toEqual(copper);
+  });
 });
 
 /*

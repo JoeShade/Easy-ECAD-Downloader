@@ -10,8 +10,8 @@ import {
   normalizeUrl,
   sanitizeFilenamePart
 } from "../core/preview_data.js";
-import { parseFootprintRectangle } from "../kicad/easyeda_footprint_parser.js";
-import { padDrillSize, symbolFillType } from "../kicad/shared.js";
+import { footprintRegionPath, parseFootprintRectangle } from "../kicad/easyeda_footprint_parser.js";
+import { padDrillSize, symbolFillType, toNumber } from "../kicad/shared.js";
 
 const EASYEDA_API_ENDPOINT =
   "https://easyeda.com/api/products/{lcscId}/components?version=6.4.19.5";
@@ -21,11 +21,6 @@ const EASYEDA_MODEL_STEP_ENDPOINT =
 const FOOTPRINT_PREVIEW_BACKGROUND = "#f8fafc";
 const FOOTPRINT_PREVIEW_COPPER = "#0f172a";
 const FOOTPRINT_PREVIEW_BODY = "#cbd5e1";
-
-function toNumber(value, fallback = 0) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : fallback;
-}
 
 function parsePoints(pointsText) {
   const raw = String(pointsText || "").trim().split(/\s+/);
@@ -235,7 +230,7 @@ function buildFootprintPreviewSvg(cadData) {
       if (diameter > 0) drills.push(footprintDrillSvg(x, y, diameter, diameter));
     } else if (designator === "SOLIDREGION") {
       const layerId = toNumber(fields[0]);
-      const path = String(fields[2] || "").trim();
+      const path = footprintRegionPath(fields[2]);
       const regionType = String(fields[3] || "solid").trim().toLowerCase();
       if (path) {
         const fill = regionType === "cutout"
@@ -267,8 +262,12 @@ function buildFootprintPreviewSvg(cadData) {
       }
     } else if (designator === "RECT") {
       const rect = parseFootprintRectangle(fields);
+      // A filled rectangle can have zero stroke width. Its interior carries
+      // the whole marking, or the pale body artwork on component layer 99.
+      const color = rect.layerId === 99 ? FOOTPRINT_PREVIEW_BODY : "#111827";
+      const fill = rect.fill === "none" ? "none" : color;
       graphicsLayer(rect.layerId).push(
-        `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" stroke-width="${rect.strokeWidth}" />`
+        `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" stroke-width="${rect.strokeWidth}" fill="${fill}" />`
       );
     }
   }
