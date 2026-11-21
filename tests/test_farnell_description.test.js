@@ -81,6 +81,26 @@ describe.each(products)("$brand description identity", product => {
 });
 
 describe("shared Farnell description delimiters", () => {
+  it("limits the metadata fallback to Farnell-family hosts", () => {
+    const page = loadContentScript("", {
+      url: "https://www.mouser.com/ProductDetail/Example?partNumber=12345",
+      headMarkup: '<meta name="description" content="Buy PART-A - MAKER - Component.">'
+    });
+    expect(page.requestContext().provider).toBeNull();
+    page.dom.window.close();
+  });
+
+  it("resolves a relative canonical product route against the page URL", () => {
+    const page = loadContentScript("", {
+      url: "https://uk.farnell.com/webapp/ProductDisplay?partNumber=12345",
+      headMarkup: '<link rel="canonical" href="/maker/part-a/component/dp/12345">'
+    });
+    expect(page.requestContext()).toMatchObject({
+      provider: "farnellSamacsys", sourcePartNumber: "12345", manufacturerPartNumber: "PART-A"
+    });
+    page.dom.window.close();
+  });
+
   it.each([
     ["STM32F030C8T6", "STMICROELECTRONICS", " "],
     ["ABC-123-TR", "TEST-MAKER", " "],

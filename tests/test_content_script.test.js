@@ -23,8 +23,7 @@ describe("content script", () => {
   it("extracts EasyEDA identifiers from supported page text", () => {
     const { hooks } = loadContentScript("<div>ignored</div>");
 
-    expect(hooks.findLcscId()).toBeNull();
-    expect(hooks.findManufacturerPartNumber()).toBeNull();
+    expect(hooks.findEasyedaPartContext()).toBeNull();
   });
 
   it("detects a labelled EasyEDA/LCSC context and answers extension messages", () => {
@@ -36,8 +35,6 @@ describe("content script", () => {
       </dl>
     `);
 
-    expect(hooks.findLcscId()).toBe("C777888");
-    expect(hooks.findManufacturerPartNumber()).toBe("STM32F030F4P6");
     expect(hooks.findEasyedaPartContext()).toEqual({
       provider: "easyedaLcsc",
       sourcePartLabel: "LCSC part",
@@ -71,7 +68,7 @@ describe("content script", () => {
       </table>
     `);
 
-    expect(hooks.findManufacturerPartNumber()).toBeNull();
+    expect(hooks.findEasyedaPartContext().manufacturerPartNumber).toBeNull();
 
     const sendResponse = vi.fn();
     listener({ type: "GET_PART_CONTEXT" }, null, sendResponse);

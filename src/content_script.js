@@ -50,10 +50,6 @@ function normalizeLabel(text) {
   return text.replace(/[.:]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function matchesKnownLabel(label, expectedLabels) {
-  return expectedLabels.some((expectedLabel) => label.includes(expectedLabel));
-}
-
 function normalizeDetectedValue(text) {
   const value = String(text || "").replace(/\s+/g, " ").trim();
   return value || null;
@@ -69,21 +65,14 @@ function buildQueryString(entries) {
     .join("&");
 }
 
-function hasExpectedLabel(label, expectedLabels, exact = false) {
-  if (exact) {
-    return expectedLabels.includes(label);
-  }
-  return matchesKnownLabel(label, expectedLabels);
-}
-
-function findLabeledTextInPairs(pairs, expectedLabels, exact = false) {
+function findLabeledTextInPairs(pairs, expectedLabels) {
   const normalizedExpectedLabels = expectedLabels.map((label) => normalizeLabel(label));
   for (const [labelNode, valueNode] of pairs) {
     if (!labelNode || !valueNode) {
       continue;
     }
     const label = normalizeLabel(labelNode.textContent || "");
-    if (hasExpectedLabel(label, normalizedExpectedLabels, exact)) {
+    if (normalizedExpectedLabels.includes(label)) {
       // Newark places a Copy button inside the MPN value cell.
       const value = valueNode.cloneNode(true);
       for (const button of value.querySelectorAll('button, [role="button"]')) {
@@ -96,31 +85,29 @@ function findLabeledTextInPairs(pairs, expectedLabels, exact = false) {
   return null;
 }
 
-function findDefinitionListText(expectedLabels, exact = false) {
+function findDefinitionListText(expectedLabels) {
   return findLabeledTextInPairs(
     Array.from(document.querySelectorAll("dl dt"), label => [
       label, label.nextElementSibling?.matches("dd") ? label.nextElementSibling : null
     ]),
-    expectedLabels,
-    exact
+    expectedLabels
   );
 }
 
-function findTableText(expectedLabels, exact = false) {
+function findTableText(expectedLabels) {
   return findLabeledTextInPairs(
     Array.from(document.querySelectorAll("table.tableInfoWrap tr"), (row) => {
       const cells = row.querySelectorAll("td");
       return [cells[0], cells[1]];
     }),
-    expectedLabels,
-    exact
+    expectedLabels
   );
 }
 
-function findLabeledText(expectedLabels, exact = false) {
+function findLabeledText(expectedLabels) {
   return (
-    findDefinitionListText(expectedLabels, exact) ||
-    findTableText(expectedLabels, exact)
+    findDefinitionListText(expectedLabels) ||
+    findTableText(expectedLabels)
   );
 }
 
@@ -178,7 +165,7 @@ function findEasyedaFieldPairs() {
       .filter(row => row.closest("table") === table)
       .map(row => Array.from(row.children).filter(cell => cell.matches("th, td")))
       .filter(cells => cells.length === 2 && isCurrentPair(cells));
-  // Current LCSC summaries use plain tables. Their own visible,
+    // Current LCSC summaries use plain tables. Their own visible,
     // complete catalogue field must qualify the table before reading its MPN.
     const isLcscSummary = /^(www\.)?lcsc\.com$/i.test(window.location.hostname) &&
       rows.some(([label, value]) => normalizeLabel(label.textContent || "") === "lcsc part #" &&
@@ -186,33 +173,6 @@ function findEasyedaFieldPairs() {
     if (table.matches(".tableInfoWrap") || isLcscSummary) pairs.push(...rows);
   }
   return pairs;
-}
-
-function findEasyedaFieldValues(expectedLabels) {
-  return findEasyedaFieldPairs()
-    .filter(([label]) => expectedLabels.includes(normalizeLabel(label.textContent || "")))
-    .map(([, value]) => normalizeDetectedValue(value.textContent))
-    .filter(Boolean);
-}
-
-function findManufacturerPartNumber() {
-  const urlId = parseEasyedaProductUrl(window.location.href);
-  const fieldIds = findEasyedaFieldValues(["jlcpcb part #", "lcsc part #"]);
-  // An agreeing catalogue field associates the MPN with the URL's current part.
-  if (urlId && !fieldIds.some(value => value.toUpperCase() === urlId)) return null;
-  const values = new Set(findEasyedaFieldValues(["mfr part #", "mpn"]));
-  return values.size === 1 ? [...values][0] : null;
-}
-
-function findLcscId() {
-  if (!isEasyedaHost()) return null;
-  // Only a complete labelled C + 3-or-more digits value or a supported route
-  // identifies the product. Repeated evidence agrees; distinct IDs fail closed.
-  const ids = new Set(findEasyedaFieldValues(["jlcpcb part #", "lcsc part #"])
-    .filter(value => /^C\d{3,}$/i.test(value)).map(value => value.toUpperCase()));
-  const urlId = parseEasyedaProductUrl(window.location.href);
-  if (urlId) ids.add(urlId);
-  return ids.size === 1 ? [...ids][0] : null;
 }
 
 function getInputValue(id) {
@@ -286,7 +246,8 @@ function parseFarnellPathProductData() {
     url = new URL(
       getLinkHref("canonical") ||
         getMetaContent("property", "og:url") ||
-        window.location.href
+        window.location.href,
+      window.location.href
     );
   } catch (error) {
     return null;
@@ -346,8 +307,7 @@ function findFarnellProductData() {
   const sourcePartNumber = findLabeledText(
     isNewarkHost()
       ? ["Newark Part No", "Newark No", "Order Code"]
-      : ["Order Code", "Farnell Part No", "Farnell No"],
-    true
+      : ["Order Code", "Farnell Part No", "Farnell No"]
   ) || pathData?.sourcePartNumber || getQueryParamValue("partNumber", "productId");
   const product = findFarnellStructuredProduct(sourcePartNumber);
 
@@ -355,14 +315,14 @@ function findFarnellProductData() {
     manufacturerName:
       product?.manufacturerName ||
       descriptionData?.manufacturerName ||
-      findLabeledText(["Manufacturer"], true) ||
+      findLabeledText(["Manufacturer"]) ||
       imageAltData?.manufacturerName ||
       pathData?.manufacturerName ||
       null,
     manufacturerPartNumber:
       product?.manufacturerPartNumber ||
       descriptionData?.manufacturerPartNumber ||
-      findLabeledText(["Manufacturer Part No", "Mfr. Part #"], true) ||
+      findLabeledText(["Manufacturer Part No", "Mfr. Part #"]) ||
       imageAltData?.manufacturerPartNumber ||
       pathData?.manufacturerPartNumber ||
       null,
@@ -601,16 +561,31 @@ function findEasyedaPartContext() {
     return null;
   }
 
-  const lcscId = findLcscId();
-  if (!lcscId) {
-    return null;
+  // Use one snapshot of the visible product fields for both identifiers. A
+  // labelled catalogue ID ties the MPN to the part. The route can identify a
+  // product on its own, and conflicting catalogue IDs leave it unidentified.
+  const ids = new Set();
+  const mpns = new Set();
+  for (const [labelNode, valueNode] of findEasyedaFieldPairs()) {
+    const label = normalizeLabel(labelNode.textContent);
+    const value = normalizeDetectedValue(valueNode.textContent);
+    if (!value) continue;
+    if (["jlcpcb part #", "lcsc part #"].includes(label) && /^C\d{3,}$/i.test(value)) {
+      ids.add(value.toUpperCase());
+    } else if (["mfr part #", "mpn"].includes(label)) {
+      mpns.add(value);
+    }
   }
-
+  const hasLabelledId = ids.size > 0;
+  const routeId = parseEasyedaProductUrl(window.location.href);
+  if (routeId) ids.add(routeId);
+  if (ids.size !== 1) return null;
+  const [lcscId] = ids;
   return {
     provider: EASYEDA_PROVIDER,
     sourcePartLabel: EASYEDA_SOURCE_LABEL,
     sourcePartNumber: lcscId,
-    manufacturerPartNumber: findManufacturerPartNumber(),
+    manufacturerPartNumber: hasLabelledId && mpns.size === 1 ? [...mpns][0] : null,
     lookup: {
       lcscId
     }
@@ -618,12 +593,10 @@ function findEasyedaPartContext() {
 }
 
 function findPartContext() {
-  return (
-    findMouserPartContext() ||
-    findFarnellPartContext() ||
-    findEasyedaPartContext() ||
-    EMPTY_PART_CONTEXT
-  );
+  const host = window.location.hostname;
+  if (/(^|\.)mouser\.(com|co\.uk)$/i.test(host)) return findMouserPartContext() || EMPTY_PART_CONTEXT;
+  if (/(^|\.)(farnell|element14|newark)\.com$/i.test(host)) return findFarnellPartContext() || EMPTY_PART_CONTEXT;
+  return findEasyedaPartContext() || EMPTY_PART_CONTEXT;
 }
 
 // Listen for extension messages and reply with the detected part context.

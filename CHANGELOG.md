@@ -6,6 +6,7 @@ Notable changes are recorded here in reverse chronological order.
 
 ### Fixed
 
+- Fixed distributor misidentification across site boundaries.
 - Fixed missing pin markers and switch contacts in symbol previews by drawing ellipses with their source radii and stroke widths.
 - Fixed hollow dots and arrowheads in KiCad exports and unwanted solid fills in symbol previews by distinguishing foreground, background and unfilled shapes.
 - Fixed windings that curved the wrong way and loops that broke in KiCad by following each elliptical arc’s source sweep and splitting circular arcs longer than 180 degrees into shorter arcs.
