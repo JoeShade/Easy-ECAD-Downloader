@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 import cases from "./fixtures/issue_17.json";
 import { createCadData } from "./helpers/fixtures.js";
+import { convertObjToWrlString } from "../src/kicad_converter.js";
 import { createServiceWorkerChrome, loadServiceWorker, sendRuntimeMessage } from "./helpers/service_worker_harness.js";
 
 const footprint = `(footprint "Test"
@@ -18,7 +19,8 @@ const footprint = `(footprint "Test"
 
 // Drive the real worker with injected browser outcomes while retaining generated
 // Blob/data-URL bytes for exact footprint checks. Each run gets separate state.
-function setup({ row = cases[0], loose = false, blob = false, behavior, fetchModel, sourceFootprint = footprint } = {}) {
+function setup({ row = cases[0], loose = false, blob = false, behavior, fetchModel, sourceFootprint = footprint,
+  convertObj } = {}) {
   const harness = createServiceWorkerChrome({
     storageState: { downloadIndividually: loose, libraryDownloadRoot: "KiCad/Workspace" },
     downloadBehavior: behavior
@@ -29,6 +31,7 @@ function setup({ row = cases[0], loose = false, blob = false, behavior, fetchMod
     revokeObjectURL: vi.fn()
   } : {};
   loadServiceWorker({ chrome: harness.chrome, urlApi,
+    convertObjToWrlString: convertObj,
     convertEasyedaCadToKicad: vi.fn(() => ({ footprint: { name: "Test", content: sourceFootprint } })),
     fetchImpl: vi.fn(async url => String(url).includes("/api/products/")
       ? { ok: true, json: async () => ({ result: createCadData({ lcscId: row.id, modelName: row.name }) }) }
@@ -101,6 +104,17 @@ describe("EasyEDA completed model association", () => {
     expect(response.warnings).toHaveLength(2);
     expect(await h.content()).not.toContain("(model");
     expect(await h.content()).toContain('(pad "1"');
+  });
+
+  it("keeps a completed STEP when the OBJ download contains only vertices", async () => {
+    const h = setup({
+      convertObj: convertObjToWrlString,
+      fetchModel: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(1), text: async () => "v 0 0 0" })
+    });
+    const { response } = await h.run();
+    expect(response).toMatchObject({ ok: true, downloadCount: 2, warnings: [expect.stringMatching(/WRL.*conversion.*face/i)] });
+    expect(await h.content()).toContain(`${cases[0].name}.step`);
+    expect(h.chrome.downloads.download.mock.calls.some(([options]) => options.filename.endsWith(".wrl"))).toBe(false);
   });
 
   it("strips all stale references when both model writes are interrupted", async () => {

@@ -1,2 +1,2 @@
-# Pin the optional QA Python linter for matching local and CI checks.
+# Pin Ruff for release tooling and optional QA checks on developer machines and CI.
 ruff==0.15.17

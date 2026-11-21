@@ -2,13 +2,13 @@
 
 ## 1. Purpose
 
-This document describes the implemented design of Easy ECAD Downloader 1.1.0. Known limitations are recorded below and in [docs/deviations.md](docs/deviations.md).
+This document describes the implemented design of Easy ECAD Downloader 1.1.1. Known limitations are recorded below and in [docs/deviations.md](docs/deviations.md).
 
 The extension supports three provider flows:
 
 - EasyEDA-backed JLCPCB and LCSC pages
 - Mouser pages that expose the SamacSys / Component Search Engine ECAD button
-- Farnell, element14, and Newark pages that expose the Supplyframe / SamacSys ECAD link
+- Farnell, element14, and Newark pages with a Supplyframe / SamacSys ECAD link or sufficient product metadata to construct the lookup
 
 The repository remains intentionally compact. If code and design diverge, update one of them in the same change.
 
@@ -40,11 +40,11 @@ Developer-only Chrome/KiCad automation lives under `tests/headless-qa/`; real Fi
 - The content script is injected only on matching JLCPCB, LCSC, Mouser, Farnell, element14, and Newark pages.
 - EasyEDA-backed pages expose an LCSC-style part id such as `C12345`.
 - Mouser support depends on the ECAD button `#lnk_CadModel[data-testid="ProductInfoECAD"]`.
-- Farnell, element14, and Newark support depend on a Supplyframe / SamacSys link exposed in the `ECAD / MCAD` section.
+- Farnell, element14, and Newark lookups use the Supplyframe / SamacSys link in the `ECAD / MCAD` section when available and otherwise draw on product metadata.
 - The content script returns a generic part context, not a provider-specific ad hoc message shape.
 - EasyEDA previews are generated locally from CAD payload primitives.
 - SamacSys distributor previews come from SamacSys JSON preview endpoints and are displayed as PNG data URLs.
-- EasyEDA datasheet availability comes from URLs exposed by the upstream payload.
+- EasyEDA previews, downloads and symbol properties use the first eligible HTTP(S) datasheet link with empty URL credentials. The resolver skips known LCSC catalogue-product routes, accepts document viewers and HTML manuals, and resolves scheme-relative links over HTTPS.
 - SamacSys distributor datasheet export is currently unsupported.
 - SamacSys distributor preview and export work directly in Chrome.
 - Firefox SamacSys support is opt-in and depends on a user-managed relay URL stored by the extension settings page.
@@ -108,7 +108,7 @@ Owns page inspection only:
 - detect Farnell, element14, or Newark SamacSys ECAD availability from the `Supply Frame Models Link`
 - read provider-specific source part metadata from the page DOM
 - reconstruct the Mouser SamacSys entry URL from `loadPartDiv(...)`
-- reconstruct the Farnell, element14, or Newark SamacSys entry URL from the Supplyframe link metadata
+- reconstruct the Farnell, element14, or Newark SamacSys entry URL from the Supplyframe link or distributor product metadata
 - reply to popup-originated `GET_PART_CONTEXT` requests
 
 It remains a DOM-reading boundary with no network or download logic.
@@ -190,13 +190,15 @@ Those modules own:
 - KiCad footprint text generation
 - OBJ-to-WRL conversion
 
-KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use a single mapped layer and convert source widths to millimetres. Circular symbol arcs derive their midpoint from the effective SVG radius and the symbol coordinate system's sweep direction.
+KiCad text serialization escapes display strings separately from library-ID normalization. Footprint TRACK/RECT graphics use their source layer and convert stroke widths to millimetres. Filled marking contours on silkscreen, fabrication and documentation layers become KiCad polygons. Curved contours use sampled SVG arcs. Footprint arcs preserve repeated segments and closure, approximate unequal radii with bounded line segments, and treat zero-radius arcs as straight lines. Track and custom-pad coordinates require complete numeric pairs. EasyEDA documentation-layer markings retain their KiCad `Cmts.User` mapping.
+
+Symbol pins point from the electrical anchor toward the body endpoint, whether the source stroke starts or ends at that anchor. Filled circles, round ellipses, paths and polygons retain foreground, background or unfilled interiors. The emitter splits circular sweeps over 180 degrees into shorter KiCad arcs and samples elliptical sweeps before converting to symbol coordinates.
 
 Symbol PT export accepts absolute M/L/Z with spaces, commas or attached command letters through the shared path parser; previews retain broader native SVG support.
 
-Absolute PT subpaths remain separate; repeated coordinate pairs, adjacent signed numbers and exponent notation follow SVG numeric syntax. Footprint pads preserve explicit non-plated-hole flags and normalize arbitrary whitespace in custom polygon coordinates. OBJ conversion supports default-material faces and negative indices relative to the vertex list at each face, and rejects invalid geometry before WRL output.
+Absolute PT subpaths remain separate; repeated coordinate pairs, adjacent signed numbers and exponent notation follow SVG numeric syntax. Footprint pads preserve explicit non-plated-hole flags and normalize arbitrary whitespace in custom polygon coordinates. OBJ conversion supports default-material faces and negative indices relative to the vertex list at each face, and requires polygon faces with at least three valid vertex indices. Invalid optional material colors use defaults. Conversion failures leave a completed STEP eligible for the footprint.
 
-Remaining symbol-export fidelity defects include omitted noncircular ellipses and curved/relative PT paths, plus circular approximation of unequal-radii arc records. Native SVG previews accept broader geometry, so preview appearance alone does not establish exported-symbol fidelity. These remain unresolved review findings.
+Symbol export still omits noncircular `E` primitives and has limited support for curved or relative `PT` paths.
 
 Mouser parts do not flow through this converter for symbol or footprint generation because the upstream ZIP already contains KiCad assets.
 
@@ -225,7 +227,7 @@ The test suite remains the primary regression net for:
 
 Chrome starts without an initial window; its first window is explicitly created minimized/unfocused, then restored only on that private desktop for popup and screenshot rendering. The input desktop is never switched. A standard-library Python launcher forwards the inherited CDP pipe descriptors and starts Chrome suspended until assigned to a kill-on-close Windows job. No debugging port, normal-profile session, foreground fallback or headless fallback is used. The configured QA Python interpreter runs both this launcher and rendering helpers.
 
-The harness records independent page fields, real content-script context, popup preview states and completed browser downloads in atomic per-stage evidence. KiCad 10 CLI and Python render all symbol/footprint entries and temporary inspection boards with unchanged model references; a known-good relative-path fixture calibrates assembly rendering. Generated assets and evidence remain in gitignored output. Each browser run creates separate short profile and download directories under the system temporary directory, avoiding extension-storage failures and evidence-path-induced filename truncation. Final browser filenames and bytes are preserved in the run's downloads tree with size and SHA-256 checks; browser events retain their actual acquisition destinations. The launcher exits after Chrome and its descendants stop and the private desktop is released. An atomic cleanup receipt must confirm this before temporary-directory cleanup; missing confirmation retains the directories and records BLOCKED. Terminal cancellation requests owned-job termination; abrupt launcher exit also terminates the job. Failed preservation or unaccounted partial files retain the acquisition directory for recovery. These tools do not change production behavior or repair export defects.
+Live workflow evidence requires a selected download, working runtime diagnostics and recorded zero errors. Severity totals cover events beyond the retained detail limit. The harness records independent page fields, real content-script context, popup preview states and completed browser downloads in atomic per-stage evidence. KiCad 10 CLI and Python render all symbol/footprint entries and temporary inspection boards with unchanged model references; a known-good relative-path fixture calibrates assembly rendering. Generated assets and evidence remain in gitignored output. Each browser run creates separate short profile and download directories under the system temporary directory, avoiding extension-storage failures and evidence-path-induced filename truncation. Final browser filenames and bytes are preserved in the run's downloads tree with size and SHA-256 checks; browser events retain their actual acquisition destinations. The launcher exits after Chrome and its descendants stop and the private desktop is released. An atomic cleanup receipt must confirm this before temporary-directory cleanup; missing confirmation retains the directories and records BLOCKED. Terminal cancellation requests owned-job termination; abrupt launcher exit also terminates the job. Failed preservation or unaccounted partial files retain the acquisition directory for recovery. These tools do not change production behavior or repair export defects.
 
 Harness schema 2 distinguishes historical download events from verified final assets, including intentional grouped-symbol-library overwrites and known symbol-entry retention. Page/detection/popup identifiers are compared separately, and early bounded runtime diagnostics keep unknown causes distinct from explicit access blockers. Every downloaded model is inventoried; unreferenced models use labelled derived importer fixtures without asserting association or alignment. Native board bounds include circle/arc extents and rotated pads. Legacy arc syntax is translated only in embedded fixture copies for modern board compatibility, with normalization metadata; zero-radius point arcs are retained and reported without geometry repair. Model references and transforms remain unchanged. Model-sized derived outlines and bounded camera fitting prevent fixed-size fixtures from silently clipping large models; fitted images still require visual assessment. Back-side layer views are included when relevant, and coverage records outstanding inspections separately from completed execution. Structural redaction applies before evidence serialization; downloaded originals remain unchanged. Unauthenticated isolated profiles do not import sessions or bypass provider restrictions.
 
@@ -260,11 +262,11 @@ Product-navigation transport errors block the browser component workflow before 
 
 EasyEDA identity is recomputed for each request from the current HTTP(S) URL and labelled product fields. URL evidence requires an apex or `www` JLCPCB/LCSC host, no credentials or nonstandard port, and `/partdetail/<slug>/C<digits>` or `/product-detail/C<digits>.html` respectively. Routes are case-insensitive with one optional trailing slash; IDs remain strings with uppercase `C` and at least three digits. Slugs, queries, fragments, canonical links and JSON-LD are not identity sources.
 
-The EasyEDA-only field reader accepts complete values under exact normalized `JLCPCB Part #` or `LCSC Part #` labels. It reads adjacent `dt`/`dd` pairs, including modern div-wrapped pairs, and two-cell `th`/`td` rows in `table.tableInfoWrap`, within `main` or otherwise the body. On LCSC, plain product-summary tables also qualify when their own accepted rows contain an exact `LCSC Part #` label and a complete catalogue ID. Visibility and ownership exclusions apply before that qualification; unanchored tables and nested-table rows cannot supply manufacturer metadata. Hidden/inert, nested, navigation/footer/aside, recommendation/related and differently linked product fields are excluded. Invalid fields do not suppress later valid ones. Shared SamacSys readers are unchanged.
+The EasyEDA-only field reader accepts complete values under exact normalized `JLCPCB Part #` or `LCSC Part #` labels. It reads adjacent `dt`/`dd` pairs, including modern div-wrapped pairs, and two-cell `th`/`td` rows in `table.tableInfoWrap`, within `main` or otherwise the body. On LCSC, plain product-summary tables also qualify when their own accepted rows contain an exact `LCSC Part #` label and a complete catalogue ID. Visibility and ownership exclusions apply before that qualification; unanchored tables and nested-table rows cannot supply manufacturer metadata. Hidden/inert, nested, navigation/footer/aside, recommendation/related and differently linked product fields are excluded. Invalid fields do not suppress later valid ones.
 
 One distinct ID is accepted; duplicates agree and conflicting URL/field IDs return the existing empty context, disabling previews and export. The whole-page text fallback is removed. Manufacturer metadata uses only exact normalized `Mfr. Part #` (including `MFR.Part #`) and `MPN` labels in those same supported fields. Values remain strings with punctuation, case, leading zeros and internal spaces preserved; repeated agreeing MPNs are deduplicated and conflicting MPNs are omitted. URL-derived contexts require an agreeing catalogue field before attaching an MPN. An unavailable MPN does not block previews or export for a valid catalogue identity; EasyEDA lookups continue to use the LCSC id. No identity is cached, and no network validation, observers or retries are added.
 
-Farnell-family description parsing uses whitespace-delimited hyphens as field separators, preserving internal hyphens in manufacturer names and part numbers. Malformed percent escapes in product paths leave the other page-field and ECAD-link fallbacks available.
+On Farnell-family sites the SamacSys link supplies the lookup identity when present. A structured Product record matching the distributor order code supplies the exact MPN and manufacturer. Product descriptions use whitespace-delimited hyphens as field separators, preserving internal hyphens. On product routes, the detector checks image captions against the route before using them as identity evidence. Malformed percent escapes in product paths leave the other page-field and ECAD-link fallbacks available.
 
 ### 5.2 Request previews
 
@@ -272,8 +274,9 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
 - EasyEDA-backed pages:
   - fetch the EasyEDA CAD payload
   - synthesize symbol and footprint SVG previews
-  - render symbol `PT` records as escaped native SVG paths, preserving source coordinates and draw order alongside pins, rectangles, `PL`/`PG`, circles and arcs
-  - keep symbol `PT`/`PL`/`PG` paint local to each shape: hex and basic named solid colors use the dark foreground, white uses the preview background, and absent, `none`, transparent or unsupported paints remain unfilled; existing stroke styling stays monochrome
+  - render symbol `PT` records as escaped native SVG paths, preserving source coordinates and draw order alongside pins, rectangles, `PL`/`PG`, circles, ellipses and arcs
+  - preserve each symbol path, polygon, polyline, circle and ellipse's fill. White and light neutral greys take the preview background, including the pale interiors of open wipers and some MOSFET arrows. Foreground fills use dark ink, and unpainted interiors stay transparent
+  - draw footprint body and pin artwork behind copper and package markings, then draw round holes, vias and oval drill slots at their source positions and orientations
   - derive datasheet availability from the payload
   - escape SVG path data and coerce numeric bounds before adding margins
 - Mouser, Farnell, element14, and Newark pages:
@@ -293,10 +296,10 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
 - Symbol, footprint, 3D, and datasheet exports follow the existing current-provider settings:
   - loose-file downloads when `downloadIndividually` is `true`
   - KiCad-style library structure when `downloadIndividually` is `false`
-- Library-mode symbol exports merge into a stored symbol library keyed by the resolved library root.
+- Library-mode symbol exports merge into a stored symbol library keyed by the resolved library root. A new EasyEDA symbol identifies its footprint by library nickname and sanitized file basename, including symbol-only exports with package metadata. Merging preserves existing definitions.
 - Symbol-library merging scans complete root-symbol blocks, including compact and multi-symbol input, preserving existing definitions and distinguishing nested units from separate symbols.
 - EasyEDA model writes opt into a terminal browser receipt, associated with the exact download ID and requested path. Ordinary artifact writers still return a count of started downloads; `downloadCount` includes acknowledged starts that subsequently fail. The popup's `Download started` status retains that meaning.
-- `src/core/downloads.js` owns browser calls and Blob cleanup; `src/core/download_receipts.js` subscribes before querying the ID, requeries snapshots invalidated by events, and polls every second for missed events. Each model has a 60-second total verification budget, including a start callback bounded to 10 seconds. Missing items, query failures and timeouts produce unverified receipts and request cancellation. Blob URLs are released on terminal state or confirmed cancellation, never merely on timeout.
+- `src/core/downloads.js` owns browser calls and Blob cleanup; `src/core/download_receipts.js` subscribes before querying the ID, requeries snapshots invalidated by events, and polls every second for missed events. Timer ticks coalesce during a search. A change event invalidates a stale result, including an empty one. Each model has a 60-second total verification budget, including a start callback bounded to 10 seconds. Missing items, query failures and timeouts produce unverified receipts and request cancellation. Blob URLs are released on terminal state or confirmed cancellation, never merely on timeout.
 - Polling extension APIs keeps the active MV3 request from becoming idle. Runtime messaging returns `true` and defers its reply until model selection finishes. Worker/browser termination abandons the request; no in-memory promise or receipt is treated as durable, and restarted workers do not resume abandoned footprint generation. No permanent receipt state is stored.
 - Footprint model references use only a successfully completed model's observed basename, preferring WRL over STEP. A failed/unverified WRL leaves a valid STEP selected. HTTP/fetch, browser-start, terminal interruption, verification and incompatible-location warnings remain distinct; optional model failures allow other selected assets to proceed.
 - Path validation requires an absolute browser filename, no traversal/control characters, an unchanged observed model parent, the complete requested library-directory suffix at segment boundaries, and a consistent inferred Downloads root across selected model receipts. Drive, UNC and POSIX paths are handled without embedding them in portable output. Counter suffixes and truncation are retained; no prefix guessing, global filename search or overwrite policy is added.
@@ -304,7 +307,7 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
 - Rewriting escapes KiCad strings and changes only the first existing model-path token, preserving transforms, geometry and existing multiple-block behavior. When no selected model has a usable receipt, all stale `(model ...)` blocks are removed.
 - EasyEDA OBJ-to-WRL conversion recenters model geometry in X/Y and bottom-aligns the model in Z. Footprint model offsets use millimetres; WRL geometry separately uses KiCad's 2.54 mm per WRL unit convention.
 - Library-mode datasheet exports are written under `<libraryRoot>/datasheets/`.
-- EasyEDA symbol export still has fidelity limitations for noncircular ellipses, curved/relative `PT` paths and unequal-radii arcs. Native SVG previews support broader path geometry than CAD export, so preview appearance alone does not establish exported-symbol fidelity.
+- EasyEDA symbol export still has fidelity limitations for noncircular `E` primitives and curved or relative `PT` paths.
 
 ### 5.4 Export SamacSys distributor parts
 
@@ -326,8 +329,8 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
   - `3D/*.stp` and `3D/*.step`
   - optional `3D/*.wrl`
 - Upstream entry, metadata, preview and ZIP destinations require HTTPS on `componentsearchengine.com` or its subdomains at the standard port, with empty URL credentials. The relay example validates each redirect and clears forwarded credentials on origin changes.
-- Direct Chrome fetches validate initial targets and the final metadata URL, but automatic preview/ZIP redirects can still consume responses outside that host rule. [docs/deviations.md](docs/deviations.md) records this open enforcement gap.
-- ZIP extraction verifies directory/header/data bounds, declared lengths and CRC-32, and limits total expanded bytes to 256 MiB. Encrypted, multi-disk and ZIP64 metadata produce explicit unsupported-format errors.
+- Direct Chrome fetches validate initial targets and final response URLs for metadata, previews and ZIPs. Chrome controls the intermediate redirect requests. [docs/deviations.md](docs/deviations.md) records this open enforcement gap.
+- ZIP extraction verifies directory/header/data bounds, declared lengths and CRC-32, and limits total expanded bytes to 256 MiB. Members are read sequentially and stored entries require matching sizes before allocation. Encrypted, multi-disk and ZIP64 metadata produce explicit unsupported-format errors.
 - Loose-file mode downloads the extracted files directly into Downloads.
 - Library mode repackages the extracted assets into the current KiCad structure:
   - symbol library merge into `<libraryRoot>/<libraryName>.kicad_sym`
@@ -343,7 +346,7 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
 
 - The popup stays focused on detection, previews, export selection, and opening the dedicated settings page.
 - The settings page owns persistent controls for download layout, Firefox relay configuration, and optional SamacSys auth values.
-- The settings page uses explicit `Save` and `Discard` actions rather than writing every field edit immediately.
+- The settings page uses explicit `Save` and `Discard` actions. A failed rollback locks the form until reload establishes the persisted values. The router passes one settings snapshot through gating and execution for each preview or export.
 - The settings page hides the advanced Firefox settings menu when opened in Chrome.
 - `chrome.storage.local` stores ordinary extension settings:
   - `downloadIndividually`
@@ -407,10 +410,10 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
 - The current Vitest/Vite/jsdom test stack requires Node `20.19.0+`, `22.13.0+`, or `24+`.
 - Optional Puppeteer browser QA requires Node `22.13.0+` or `24+`, Python `3.10+` with Pillow, and KiCad `10.x`. `npm test` and `npm run validate` exclude harness tests; `npm run qa:smoke` explicitly runs its JS/Python checks. Harness execution and all `qa:*` checks are optional, not commit or pull-request requirements. Live service blockers and fixture renders remain distinct from successful live end-to-end validation.
 - The private-desktop QA launcher checks the configured Chrome for Testing executable before starting its native helper; a missing browser reports the pinned-browser installation command rather than a downstream protocol failure.
-- QA Python correctness linting uses pinned Ruff through `npm run qa:lint`. The separate `Optional QA harness` workflow uses only `workflow_dispatch`; developers can manually run its offline lint/smoke checks on Node 24 and Python 3.10. Routine push/pull-request CI skips browser downloads and runs only extension validation.
+- QA Python correctness linting uses pinned Ruff through `npm run qa:lint`. The separate `Optional QA harness` workflow uses only `workflow_dispatch`; developers can manually run its offline lint/smoke checks on Node 24 and Python 3.10. The optional checks include matrix bookkeeping tests and lint. Push and pull-request CI runs extension validation and packaging.
 - Harness source and matrix-management scripts are tracked developer tooling. Actual QA matrix documents and campaign evidence remain untracked, normally in sibling `../qa-run/`; ignore rules also cover in-checkout `qa-run/` directories and known matrix filenames.
 - Browser-run rendering requires schema-2 verified final assets whose current sizes and SHA-256 hashes match the download inventory. Malformed library/model records retain outstanding inspections. Concurrent evidence saves serialize complete snapshots; final download accounting survives popup closure, and cleanup rechecks acquisition files after browser exit.
-- Browser-run assembly rendering also requires every footprint model reference to resolve to a verified inventoried model; unrelated local files leave the assembly blocked and its inspections outstanding.
+- The renderer resolves `KIPRJMOD` from the inspection project and blocks original assemblies with unresolved references. Browser-run assemblies also require verified inventory membership for every referenced model. Input hash checks reject symlinks and Windows reparse points.
 - Production source should not be refactored solely to make tests easier; harnesses should adapt to the existing code shape.
 - Local and CI validation share `npm run validate`, which runs ESLint, Vitest, `npm audit --audit-level=moderate`, and `git diff --check`.
 - GitHub Actions runs validation with `npm ci` on Node `20.19.0`, `22.13.0`, and `24.x`.
@@ -432,6 +435,6 @@ Farnell-family description parsing uses whitespace-delimited hyphens as field se
 
 - `scripts/package_extension.py` uses Python 3.10+ standard-library tools behind `npm run package`. It selects tracked runtime files through an explicit path/type allowlist: `manifest.json`, `LICENSE`, JavaScript/HTML/CSS/PNG files under `src/`, and PNG files under `icons/`.
 - The archive has `manifest.json` at its root. Packaging excludes developer dependencies, QA tools/data, docs and installation instructions. Source text uses LF line endings and archive metadata is fixed; binary assets retain their bytes.
-- Version metadata, changelog presence, manifest entrypoints, static ES-module/HTML/CSS references, ZIP inventory and archived bytes are verified before output. `dist/` holds the ZIP, SHA-256 checksum and tag-linked release notes and remains untracked.
-- `npm run package:test` exercises packaging in isolated Git repositories without browsers, KiCad or third-party Python modules. These checks run in the release workflow and are independent of optional QA.
-- Version-tag pushes trigger `.github/workflows/release.yml`, which reuses normal three-version Node validation, verifies the tag commit belongs to `main`, tests and builds the package, then publishes its ZIP/checksum and changelog notes through a draft release. Reruns can finish drafts; published versions are not overwritten. Browser-store delivery remains separate.
+- Version metadata, the existing AMO add-on ID (`easyeda-downloader@joeshade.local`), changelog presence, manifest entrypoints, static ES-module/HTML/CSS references, ZIP inventory and archived bytes are verified before output. `dist/` holds the ZIP, SHA-256 checksum and tag-linked release notes and remains untracked.
+- `npm run package:test` exercises packaging in isolated Git repositories without browsers, KiCad or third-party Python modules. Push, pull-request and reusable release CI lint the packager, exercise those tests, and build the runtime archive.
+- Version-tag pushes trigger `.github/workflows/release.yml`, which reuses Node and packaging CI, verifies the tag commit belongs to `main`, builds the tag-checked package, then publishes its ZIP/checksum and changelog notes through a draft release. Reruns can finish drafts; published versions are not overwritten. Browser-store delivery remains separate.

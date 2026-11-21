@@ -81,6 +81,26 @@ describe.each(products)("$brand description identity", product => {
 });
 
 describe("shared Farnell description delimiters", () => {
+  it("limits the metadata fallback to Farnell-family hosts", () => {
+    const page = loadContentScript("", {
+      url: "https://www.mouser.com/ProductDetail/Example?partNumber=12345",
+      headMarkup: '<meta name="description" content="Buy PART-A - MAKER - Component.">'
+    });
+    expect(page.requestContext().provider).toBeNull();
+    page.dom.window.close();
+  });
+
+  it("resolves a relative canonical product route against the page URL", () => {
+    const page = loadContentScript("", {
+      url: "https://uk.farnell.com/webapp/ProductDisplay?partNumber=12345",
+      headMarkup: '<link rel="canonical" href="/maker/part-a/component/dp/12345">'
+    });
+    expect(page.requestContext()).toMatchObject({
+      provider: "farnellSamacsys", sourcePartNumber: "12345", manufacturerPartNumber: "PART-A"
+    });
+    page.dom.window.close();
+  });
+
   it.each([
     ["STM32F030C8T6", "STMICROELECTRONICS", " "],
     ["ABC-123-TR", "TEST-MAKER", " "],
@@ -104,6 +124,43 @@ describe("shared Farnell description delimiters", () => {
       headMarkup: '<meta name="description" content="Buy ABC-123-TR - TEST-MAKER - Component.">'
     });
     expectIdentity(page.requestContext(), product, "TEST-MAKER");
+    page.dom.window.close();
+  });
+});
+
+describe("Newark SJ1-3533NG identity (issue #35)", () => {
+  const product = { brand: "newark", label: "Newark part", orderCode: "59AM3221", mpn: "SJ1-3533NG" };
+  const url = "https://canada.newark.com/same-sky/sj1-3533ng/audio-jack-r-a-5p-3-6mm-th/dp/59AM3221";
+  const caption = '<meta property="og:image:alt" content="SAME SKY SJ1-3533NG AUDIO JACK, R/A, 5P, 3.6MM, TH">';
+
+  // The SKU, MPN and maker come from the product record captured on the
+  // reported page. A second Product checks that the order code selects it.
+  it("builds the lookup from the matching Product even alongside a verbose caption and copy control", () => {
+    const data = { "@graph": [
+      { "@type": "Product", sku: "12345", mpn: "OTHER-MPN", brand: "Other" },
+      { "@type": "Product", sku: "59AM3221", mpn: "SJ1-3533NG", manufacturer: { name: "SAME SKY" } }
+    ] };
+    const page = loadContentScript("<dl><dt>Manufacturer Part No</dt><dd>SJ1-3533NG<button>Copy</button></dd></dl>", {
+      url, headMarkup: caption + '<script type="application/ld+json">{</script>' +
+        `<script type="application/ld+json">${JSON.stringify(data)}</script>`
+    });
+    expectIdentity(page.requestContext(), product, "SAME SKY");
+    page.dom.window.close();
+  });
+
+  it("uses the product route when the caption ends in a description and structured data is absent", () => {
+    const page = loadContentScript("", { url, headMarkup: caption });
+    expectIdentity(page.requestContext(), product, "SAME SKY");
+    page.dom.window.close();
+  });
+
+  it("retains the labelled MPN on a query route when the caption includes the package description", () => {
+    const page = loadContentScript(`<dl><dt>Manufacturer</dt><dd>SAME SKY</dd>
+      <dt>Manufacturer Part No</dt><dd>SJ1-3533NG<button>Copy</button></dd></dl>`, {
+      url: "https://canada.newark.com/webapp/ProductDisplay?partNumber=59AM3221",
+      headMarkup: caption
+    });
+    expectIdentity(page.requestContext(), product, "SAME SKY");
     page.dom.window.close();
   });
 });

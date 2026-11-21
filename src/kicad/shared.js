@@ -8,7 +8,6 @@ const KI_SYMBOL_LIB_VERSION = "20211014";
 const KI_SYMBOL_GENERATOR = "Easy ECAD Downloader";
 
 const KI_SYMBOL_CONFIG = {
-  pinLength: 2.54,
   pinNameSize: 1.27,
   pinNumSize: 1.27,
   propertyFontSize: 1.27,
@@ -155,12 +154,24 @@ function applyPinNameStyle(pinName) {
 }
 
 // One EasyEDA drawing unit is ten mils (0.254 mm).
-function pxToMm(dim) {
-  return 10.0 * Number(dim) * 0.0254;
-}
-
 function convertToMm(dim) {
   return Number(dim) * 10 * 0.0254;
+}
+
+// The monochrome renderers distinguish foreground ink, background paint and
+// an unpainted interior. EasyEDA also uses pale grey for open wiper markings.
+function symbolFillType(value) {
+  const fill = String(value || "").trim().toLowerCase();
+  if (fill === "white") return "background";
+  if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/.test(fill)) {
+    const hex = fill.length === 4 ? fill.slice(1).replace(/./g, "$&$&") : fill.slice(1);
+    const channel = hex.slice(0, 2);
+    // Light neutral masks include #EFEFEF wipers and #FEFEFE MOSFET arrows.
+    return channel.repeat(3) === hex && parseInt(channel, 16) >= 0xe0 ? "background" : "outline";
+  }
+  return /^(?:black|silver|gray|maroon|red|purple|fuchsia|green|lime|olive|yellow|navy|blue|teal|aqua)$/.test(fill)
+    ? "outline"
+    : "none";
 }
 
 // Read the absolute move, line, elliptical-arc and close commands used by the
@@ -280,31 +291,29 @@ function computeArc(
   const vx = rx !== 0 ? (-x1 - cx1) / rx : 0;
   const vy = ry !== 0 ? (-y1 - cy1) / ry : 0;
 
-  const n = Math.sqrt((ux * ux + uy * uy) * (vx * vx + vy * vy));
-  const p = ux * vx + uy * vy;
-  const signAngle = ux * vy - uy * vx < 0 ? -1 : 1;
-  let angleExtent = n !== 0 ? toDegrees(signAngle * Math.acos(p / n)) : 719;
-  if (!sweepFlag && angleExtent > 0) {
-    angleExtent -= 360;
-  } else if (sweepFlag && angleExtent < 0) {
-    angleExtent += 360;
+  let sweepAngle = Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+  if (!sweepFlag && sweepAngle > 0) {
+    sweepAngle -= 2 * Math.PI;
+  } else if (sweepFlag && sweepAngle < 0) {
+    sweepAngle += 2 * Math.PI;
   }
-
-  const extentSign = angleExtent < 0 ? 1 : -1;
-  // KiCad's legacy footprint arc angle uses the opposite sign to SVG's sweep.
-  angleExtent = (Math.abs(angleExtent) % 360) * extentSign;
-
-  return { cx, cy, angleExtent };
+  return {
+    cx, cy, radiusX: rx, radiusY: ry, rotation: phi,
+    startAngle: Math.atan2(uy, ux), sweepAngle,
+    // Legacy KiCad footprint angles have the opposite sign to SVG's sweep.
+    angleExtent: -toDegrees(sweepAngle)
+  };
 }
 
-// Modern symbol arcs identify a point halfway around a circular sweep instead
-// of storing a center and angle; averaging these angles supplies that third point.
-function getMiddleArcPos(centerX, centerY, radius, angleStart, angleEnd) {
-  const middleX =
-    centerX + radius * Math.cos(((angleStart + angleEnd) / 2) * (Math.PI / 180));
-  const middleY =
-    centerY + radius * Math.sin(((angleStart + angleEnd) / 2) * (Math.PI / 180));
-  return { middleX, middleY };
+// Evaluate the rotated ellipse in source coordinates before any KiCad axis flip.
+function pointOnArc(arc, fraction) {
+  const angle = arc.startAngle + fraction * arc.sweepAngle;
+  const x = arc.radiusX * Math.cos(angle);
+  const y = arc.radiusY * Math.sin(angle);
+  return {
+    x: arc.cx + x * Math.cos(arc.rotation) - y * Math.sin(arc.rotation),
+    y: arc.cy + x * Math.sin(arc.rotation) + y * Math.cos(arc.rotation)
+  };
 }
 
 function indentLines(text, indentLevel) {
@@ -321,9 +330,6 @@ function indentLines(text, indentLevel) {
 // EasyEDA rotations in the 0..360 range become KiCad's signed -180..180 range.
 function angleToKi(rotation) {
   const value = toNumber(rotation);
-  if (!Number.isFinite(value)) {
-    return "";
-  }
   return value > 180 ? -(360 - value) : value;
 }
 
@@ -335,9 +341,15 @@ function rotate(x, y, degrees) {
   };
 }
 
-function fpToKi(value) {
-  const num = toNumber(value);
-  return Number.isFinite(num) ? Math.round(num * 10 * 0.0254 * 100) / 100 : num;
+// EasyEDA slot length includes the round ends. Both the preview and KiCad
+// use the pad's local major axis before applying its placement rotation.
+function padDrillSize(holeRadius, holeLength, padHeight, padWidth) {
+  if (!(holeRadius > 0)) return null;
+  const diameter = holeRadius * 2;
+  if (!(holeLength > 0)) return { width: diameter, height: diameter };
+  return padHeight >= padWidth
+    ? { width: diameter, height: holeLength }
+    : { width: holeLength, height: diameter };
 }
 
 export {
@@ -356,14 +368,14 @@ export {
   computeArc,
   convertToMm,
   escapeKiCadString,
-  fpToKi,
-  getMiddleArcPos,
   indentLines,
+  padDrillSize,
   parseSvgPath,
-  pxToMm,
+  pointOnArc,
   quoteKiCadAtom,
   rotate,
   sanitizeFields,
+  symbolFillType,
   toBool,
   toDegrees,
   toNumber

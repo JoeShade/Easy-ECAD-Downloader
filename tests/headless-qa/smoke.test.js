@@ -186,7 +186,9 @@ describe("headless QA evidence", () => {
     const wrong = identifierChecks(context, reference, { ...popup, manufacturerPartNumber: "ABC-1", partNumber: "other", sourcePartLabel: "Farnell part" });
     expect(wrong.filter(check => check.name.startsWith("detected.")).every(check => check.outcome === "PASS")).toBe(true);
     for (const name of ["popup.mpn.detected", "popup.distributor.detected", "popup.sourceLabel.detected", "popup.sourceLabel.convention"]) {
-      expect(wrong.find(check => check.name === name).outcome).toBe("FAIL");
+      expect(wrong.find(check => check.name === name)).toMatchObject({
+        outcome: "FAIL", establishes: "Observed identifier differs from the reference"
+      });
     }
     expect(identifierChecks({ ...context, lookup: { manufacturerName: "Other Vendor" } }, reference)
       .find(check => check.name === "detected.manufacturer.page").outcome).toBe("FAIL");

@@ -16,6 +16,25 @@ import {
 } from "./helpers/service_worker_harness.js";
 
 describe("service worker Firefox SamacSys flow", () => {
+  it.each(["GET_PART_PREVIEWS", "EXPORT_PART"])("uses the settings snapshot that admitted %s", async type => {
+    const proxyBaseUrl = "https://proxy.example.test/relay";
+    const { chrome, listeners } = createServiceWorkerChrome();
+    // The user clears the relay after this request's settings read. Its next
+    // request must see that change, while the admitted request uses its relay.
+    chrome.storage.local.get.mockImplementationOnce((defaults, callback) =>
+      callback({ ...defaults, samacsysFirefoxProxyBaseUrl: proxyBaseUrl }));
+    const fetchImpl = createSamacsysFetchImpl({ proxyBaseUrl, symbolImage: "AA==", footprintImage: "AA==", zipStatus: 200 });
+    loadServiceWorker({ chrome, fetchImpl, userAgent: "Firefox", readZipEntries: async () => [
+      { name: "KiCad/test.kicad_sym", data: new TextEncoder().encode(MOUSER_SYMBOL) }
+    ] });
+    const message = { type, partContext: createSamacsysPartContext("mouser"),
+      options: { symbol: true, footprint: false, model3d: false } };
+    expect((await sendRuntimeMessage(listeners.runtimeMessage[0], message)).response.ok).toBe(true);
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining([proxyBaseUrl]));
+    expect(fetchImpl.mock.calls.every(([url]) => url === proxyBaseUrl)).toBe(true);
+    expect((await sendRuntimeMessage(listeners.runtimeMessage[0], message)).response.error).toContain("require a configured proxy");
+  });
+
   it("returns the sign-in-required error when Firefox SamacSys export is unauthorized", async () => {
     const { chrome, listeners } = createServiceWorkerChrome({
       storageState: {

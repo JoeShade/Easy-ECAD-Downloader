@@ -13,7 +13,8 @@ import {
   loadServiceWorker,
   sendRuntimeMessage
 } from "./helpers/service_worker_harness.js";
-import { buildFootprintPreviewSvg } from "../src/sources/easyeda_common.js";
+import { buildFootprintPreviewSvg, getDatasheetInfo } from "../src/sources/easyeda_common.js";
+import { convertEasyedaCadToKicad } from "../src/kicad_converter.js";
 
 function decodeDataUrl(dataUrl) {
   return Buffer.from(String(dataUrl).split(",")[1] || "", "base64").toString(
@@ -22,6 +23,72 @@ function decodeDataUrl(dataUrl) {
 }
 
 describe("service worker EasyEDA flow", () => {
+  it("omits C106225 catalogue pages from preview availability, downloads and the KiCad symbol", async () => {
+    const cad = createCadData({ lcscId: "C106225", datasheetUrl: "" });
+    // These are the package and catalogue URLs from the live C106225 response.
+    // The first product page identifies the resistor RM02FTN4302.
+    cad.packageDetail.dataStr.head.c_para.link = "https://item.szlcsc.com/239136.html";
+    delete cad.dataStr.head.c_para.link;
+    cad.lcsc.url = "https://lcsc.com/product-detail/Chip-Resistor-Surface-Mount_10KR-1002-1_C106225.html";
+    const { chrome, listeners, storage } = createServiceWorkerChrome();
+    loadServiceWorker({ chrome, convertEasyedaCadToKicad,
+      fetchImpl: async () => ({ ok: true, json: async () => ({ result: cad }) }) });
+    const partContext = { provider: "easyedaLcsc", lookup: { lcscId: "C106225" } };
+    const request = message => sendRuntimeMessage(listeners.runtimeMessage[0], { ...message, partContext });
+    const preview = await request({ type: "GET_PART_PREVIEWS" });
+    expect(preview.response.metadata.datasheetAvailable).toBe(false);
+    const result = await request({ type: "EXPORT_PART",
+      options: { symbol: true, footprint: false, model3d: false, datasheet: true } });
+    expect(result.response).toEqual({ ok: true, downloadCount: 1, warnings: ["Datasheet not available for this part."] });
+    const library = storage["symbolLibrary:easyECADDownloader/easyECADDownloader.kicad_sym"];
+    expect(library).toContain('(symbol "Logic_Buffer"');
+    expect(library).not.toContain('"Datasheet"');
+    expect(chrome.downloads.download).toHaveBeenCalledOnce();
+  });
+
+  it.each(["https://docs.example.test/part.html", "https://www.lcsc.com/datasheet/view?id=123",
+    "https://datasheet.lcsc.com/part.pdf"])("keeps a valid fallback document in exports and the symbol: %s", documentUrl => {
+    const cad = createCadData();
+    cad.packageDetail.dataStr.head.c_para.link = "//item.szlcsc.com/239136.html?lang=en";
+    cad.dataStr.head.c_para.link = documentUrl;
+    cad.lcsc.url = "https://www.lcsc.com/product-detail/C106225.html";
+    expect(getDatasheetInfo(cad, "C106225").url).toBe(documentUrl);
+    const { symbol } = convertEasyedaCadToKicad(cad, { symbol: true });
+    expect(symbol.content).toContain(`"${documentUrl}"`);
+    expect(symbol.content).not.toContain(cad.lcsc.url);
+  });
+
+  it("selects the first usable web datasheet or reports it unavailable", () => {
+    const cad = createCadData({ datasheetUrl: "" });
+    cad.packageDetail.dataStr.head.c_para.link = "datasheet pending";
+    cad.dataStr.head.c_para.link = "about:blank";
+    cad.lcsc.url = "//cdn.example.test/part.pdf";
+    expect(getDatasheetInfo(cad, "C12345").url).toBe("https://cdn.example.test/part.pdf");
+    cad.lcsc.url = "";
+    expect(getDatasheetInfo(cad, "C12345")).toEqual({ url: "", filename: "" });
+  });
+
+  it.each([true, false])("links the grouped symbol to the library footprint name (footprint selected: %s)", async footprint => {
+    const { chrome, listeners, storage } = createServiceWorkerChrome({
+      storageState: { libraryDownloadRoot: "KiCad/Workspace" }
+    });
+    const cad = createCadData();
+    // The symbol's upstream package label can differ from the footprint's
+    // actual title. The .pretty filename determines KiCad's lookup key.
+    cad.dataStr.head.c_para.package = "Source QFN";
+    loadServiceWorker({ chrome, convertEasyedaCadToKicad,
+      fetchImpl: async () => ({ ok: true, json: async () => ({ result: cad }) }) });
+    const { response } = await sendRuntimeMessage(listeners.runtimeMessage[0], {
+      type: "EXPORT_PART", partContext: { provider: "easyedaLcsc", lookup: { lcscId: "C12345" } },
+      options: { symbol: true, footprint, model3d: false }
+    });
+    expect(response.ok).toBe(true);
+    expect(storage["symbolLibrary:KiCad/Workspace/Workspace.kicad_sym"])
+      .toMatch(/\(property\s+"Footprint"\s+"Workspace:QFN-16_Example"/);
+    if (footprint) expect(chrome.downloads.download.mock.calls[1][0].filename)
+      .toBe("KiCad/Workspace/Workspace.pretty/QFN-16_Example.kicad_mod");
+  });
+
   it.each([...cases,
     { case: "issue14-exact", id: "C3099", mpn: "0451001.MRL" },
     { case: "issue14-unavailable", id: "C3099", mpn: null }
@@ -60,7 +127,7 @@ describe("service worker EasyEDA flow", () => {
       }
     });
 
-    expect(svg).toContain("<ellipse");
+    expect(svg).toContain('<rect x="9" y="17" width="2" height="8" rx="1"');
     expect(svg).not.toContain('<polygon points="10,17 10,25"');
   });
 

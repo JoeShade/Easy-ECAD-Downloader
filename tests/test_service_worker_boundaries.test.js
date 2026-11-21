@@ -5,13 +5,13 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { writeSymbolArtifact } from "../src/core/export_artifacts.js";
+import { rewriteSymbolFootprintReference } from "../src/core/library_store.js";
 import {
   createSamacsysFetchImpl,
   fetchSamacsysPageMetadata,
   fetchSamacsysZipArchive,
   parseSamacsysPageMetadata,
   rewriteSamacsysFootprintModelPath,
-  rewriteSamacsysSymbolFootprintReference,
   stripKicadFootprintModels
 } from "../src/sources/samacsys_common.js";
 import { buildFootprintPreviewSvg } from "../src/sources/easyeda_common.js";
@@ -104,6 +104,16 @@ describe("SamacSys request destinations", () => {
     expect(requested.searchParams.get("tok")).toBe("value&more");
     expect(requested.searchParams.get("partID")).toBe("1");
   });
+
+  it("checks the resolved URL before accepting a direct response", async () => {
+    const url = "https://ms.componentsearchengine.com/symbol.php";
+    const approved = { url: "https://componentsearchengine.com/symbol.php" };
+    const fetchImpl = vi.fn().mockResolvedValueOnce(approved)
+      .mockResolvedValueOnce({ url: "https://other.example.test/symbol.php" });
+    const request = createSamacsysFetchImpl(fetchImpl, { userAgent: "Chrome" });
+    await expect(request(url)).resolves.toBe(approved);
+    await expect(request(url)).rejects.toThrow("SamacSys request URL");
+  });
 });
 
 describe("shared library writes", () => {
@@ -181,7 +191,7 @@ describe("SamacSys KiCad model edits", () => {
   });
 
   it("retains literal dollar signs and escapes quotes in symbol footprint references", () => {
-    const rewritten = rewriteSamacsysSymbolFootprintReference(
+    const rewritten = rewriteSymbolFootprintReference(
       '(property "Footprint" "old" (at 0 0 0))', 'part $1 "revision"', "Parts"
     );
     expect(rewritten).toBe('(property "Footprint" "Parts:part $1 \\"revision\\"" (at 0 0 0))');

@@ -241,7 +241,10 @@ describe("settings page", () => {
     await hooks.saveSettings();
     expect(hooks.elements.statusEl.textContent).toContain("partly saved");
     expect(hooks.elements.statusEl.textContent).toContain("Reload");
-    expect(hooks.elements.settingsForm.hasAttribute("inert")).toBe(false);
+    expect(hooks.elements.settingsForm.hasAttribute("inert")).toBe(true);
+    expect(hooks.elements.saveSettingsEl.disabled).toBe(true);
+    await hooks.saveSettings();
+    expect(chrome.storage.local.set).toHaveBeenCalledTimes(2);
   });
   it("keeps hidden runtime-specific sections visually hidden", () => {
     const settingsPageCss = normalizeNewlines(

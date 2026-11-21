@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -197,5 +198,18 @@ class Evidence:
 
 
 def hashes(directory):
-    return {file.relative_to(directory).as_posix(): hashlib.sha256(file.read_bytes()).hexdigest()
-            for file in Path(directory).rglob("*") if file.is_file()}
+    """Hash input files, checking each entry before following a directory or reading bytes."""
+    root = Path(directory)
+    pending, result = [root], {}
+    while pending:
+        path = pending.pop()
+        entry = path.lstat()
+        # Windows junctions also redirect directory walks. lstat reports the
+        # redirecting entry itself, including its Windows reparse-point flag.
+        if stat.S_ISLNK(entry.st_mode) or getattr(entry, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+            raise ValueError("Input tree contains a symbolic link or Windows reparse point")
+        if stat.S_ISDIR(entry.st_mode):
+            pending.extend(path.iterdir())
+        elif stat.S_ISREG(entry.st_mode):
+            result[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return result

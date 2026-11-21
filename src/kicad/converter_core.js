@@ -37,15 +37,11 @@ function convertEasyedaCadToKicad(cadData, options = {}) {
   return result;
 }
 
-function convertObjToWrlString(objData) {
-  return convertObjToWrl(objData);
-}
-
 export {
   applyPinNameStyle,
   applyTextStyle,
   convertEasyedaCadToKicad,
-  convertObjToWrlString,
+  convertObjToWrl as convertObjToWrlString,
   drillToKi,
   parseSvgPath
 };

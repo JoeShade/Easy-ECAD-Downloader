@@ -2,6 +2,33 @@
 
 Notable changes are recorded here in reverse chronological order.
 
+## 1.1.1
+
+### Fixed
+
+- Fixed resistor pins pointing away from the symbol body when EasyEDA drew a pin stroke toward its electrical connection.
+- Fixed missing footprint preview fills and distorted elliptical footprint arcs. Incomplete track and custom-pad coordinates now fail conversion before KiCad receives malformed points.
+- Fixed grouped EasyEDA symbols referring to the upstream package name instead of the exported footprint's library and file name.
+- Fixed valid STEP models losing selection to empty OBJ conversions, and completed model downloads losing their references after a slow browser status query.
+- Fixed distributor misidentification across site boundaries. EasyEDA catalogue links could also produce an unrelated product page as a datasheet. Previews, downloads and symbol properties now skip those links and use the next eligible document.
+- Fixed settings changes taking effect midway through a provider request. A failed settings rollback now requires a reload, and direct SamacSys responses are checked against the approved hosts before use.
+- Fixed QA results overlooking late runtime errors, unresolved model references and inconsistent matrix verdicts. CI now checks packaging on pull requests, and the development dependency lock includes the ESLint audit fix.
+- Fixed missing pin markers and switch contacts in symbol previews by drawing ellipses with their source radii and stroke widths.
+- Fixed hollow dots and arrowheads in KiCad exports and unwanted solid fills in symbol previews by distinguishing foreground, background and unfilled shapes.
+- Fixed windings that curved the wrong way and loops that broke in KiCad by following each elliptical arc’s source sweep and splitting circular arcs longer than 180 degrees into shorter arcs.
+- Fixed gaps between pins and symbol bodies by deriving each pin’s direction and length from its drawn path.
+- Fixed missing holes and slots that appeared round in footprint previews by drawing drill openings over the copper and using each slot’s length, width and rotation.
+- Fixed hidden footprint markings and apparent gaps in solid pads by drawing package artwork behind copper and silkscreen.
+- Fixed oversized rectangular footprint outlines by reading the stroke width separately from the layer number.
+- Fixed missing polarity marks, arrows and package fills in footprint exports by converting filled contours, including curved edges, into polygons on the corresponding KiCad layers.
+- Fixed incorrect manufacturer part numbers on Farnell, element14 and Newark pages by matching the distributor order code to the product record and checking fallback image captions against the product URL.
+- Corrected the Firefox add-on ID to `easyeda-downloader@joeshade.local` for updates to the existing AMO listing. Packaging checks this ID.
+
+### Known limitations
+
+- The exported WRL model for LCSC resistor C106225 appeared to the left of both footprint pads in KiCad. The source of the offset is still under investigation.
+- Chrome follows intermediate SamacSys redirects before the extension can check their destinations. The extension checks the initial and final URLs. See [the redirect limitation](docs/deviations.md).
+
 ## 1.1.0
 
 ### Added

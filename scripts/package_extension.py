@@ -17,11 +17,13 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_NAME = "easy-ecad-downloader"
+AMO_ADDON_ID = "easyeda-downloader@joeshade.local"
 REPOSITORY = "JoeShade/Easy-ECAD-Downloader"
 TEXT_SUFFIXES = {".js", ".html", ".css", ".json"}
 
 
 def release_version(root: Path, tag: str | None) -> str:
+    """Tie the store identity and optional release tag to one version across all manifests."""
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     package = json.loads((root / "package.json").read_text(encoding="utf-8"))
     lock = json.loads((root / "package-lock.json").read_text(encoding="utf-8"))
@@ -32,6 +34,10 @@ def release_version(root: Path, tag: str | None) -> str:
         raise ValueError("The manifest version is outside browser extension limits.")
     if manifest.get("manifest_version") != 3 or package.get("name") != PACKAGE_NAME:
         raise ValueError("Expected the Easy ECAD Manifest V3 package.")
+    # AMO updates must retain the ID of the existing published listing.
+    addon_id = manifest.get("browser_specific_settings", {}).get("gecko", {}).get("id")
+    if addon_id != AMO_ADDON_ID:
+        raise ValueError(f"Firefox add-on ID must match the AMO listing: {AMO_ADDON_ID}")
     versions = [package.get("version"), lock.get("version"),
                 lock.get("packages", {}).get("", {}).get("version")]
     if any(value != version for value in versions):
@@ -53,8 +59,7 @@ def allowed_file(name: str) -> bool:
 
 
 def runtime_files(root: Path) -> dict[str, bytes]:
-    # Git's index supplies the candidate names; untracked local files never ship.
-    # Read working-tree bytes so local packaging includes edits to tracked source.
+    # Git's index supplies the candidate names. Working-tree bytes include local edits.
     entries = subprocess.check_output(
         ["git", "ls-files", "--stage", "-z"], cwd=root
     ).decode("utf-8").split("\0")
@@ -100,18 +105,23 @@ def check_reference(files: dict[str, bytes], owner: str, reference: str) -> None
 
 
 def verify_runtime(files: dict[str, bytes]) -> None:
+    """Check that both browser startup paths and their local resources ship together."""
     manifest = json.loads(files["manifest.json"])
     background = manifest.get("background", {})
     action = manifest.get("action", {})
     references = [background.get("service_worker"), action.get("default_popup"),
                   manifest.get("options_ui", {}).get("page")]
-    references.extend(background.get("scripts", []))
+    firefox_scripts = background.get("scripts", [])
+    content_scripts = manifest.get("content_scripts", [])
+    if not firefox_scripts or not any(script.get("js") for script in content_scripts):
+        raise ValueError("Missing manifest entrypoint for Firefox background or page detection.")
+    references.extend(firefox_scripts)
     for icons in [manifest.get("icons", {}), action.get("default_icon", {})]:
         references.extend(icons.values() if isinstance(icons, dict) else [icons])
-    for script in manifest.get("content_scripts", []):
+    for script in content_scripts:
         references.extend(script.get("js", []) + script.get("css", []))
-    for reference in filter(None, references):
-        if reference not in files:
+    for reference in references:
+        if not isinstance(reference, str) or reference not in files:
             raise ValueError(f"Missing manifest entrypoint or asset: {reference}")
     # These cover the extension's static ES modules, HTML and CSS resources.
     # Remote provider data and generated data/blob URLs are runtime concerns.
@@ -156,12 +166,12 @@ def release_notes(root: Path, version: str, repository: str) -> str:
 
 
 def write_output(path: Path, content: bytes) -> None:
-    # Publish each completed file atomically so an interrupted local write cannot
-    # replace an earlier valid archive with partial bytes.
-    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
-        temporary.write(content)
-        temporary_path = Path(temporary.name)
+    # A temporary on the same filesystem preserves any previous output until replacement.
+    temporary = tempfile.NamedTemporaryFile(dir=path.parent, delete=False)
+    temporary_path = Path(temporary.name)
     try:
+        with temporary:
+            temporary.write(content)
         temporary_path.replace(path)
     finally:
         temporary_path.unlink(missing_ok=True)
@@ -169,6 +179,7 @@ def write_output(path: Path, content: bytes) -> None:
 
 def build_package(root: Path, output: Path, tag: str | None = None,
                   repository: str = REPOSITORY) -> Path:
+    """Build in memory and verify the archived bytes before publishing the three files."""
     version = release_version(root, tag)
     notes = release_notes(root, version, repository)
     files = runtime_files(root)

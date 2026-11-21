@@ -5,10 +5,7 @@
  * common preview and export path for Mouser, Farnell, and similar partners.
  */
 
-import {
-  loadSettings,
-  resolveSamacsysAuthorizationHeader
-} from "../core/settings.js";
+import { resolveSamacsysAuthorizationHeader } from "../core/settings.js";
 import {
   createExportContext,
   getLibraryName,
@@ -24,7 +21,6 @@ import {
   fetchSamacsysPageMetadata,
   fetchSamacsysZipArchive,
   rewriteSamacsysFootprintModelPath,
-  rewriteSamacsysSymbolFootprintReference,
   stripKicadFootprintModels
 } from "./samacsys_common.js";
 import { isFirefoxRuntime } from "../core/part_context.js";
@@ -56,8 +52,7 @@ function createSamacsysDistributorAdapter(deps) {
   const { chromeApi, fetchImpl, downloads, readZipEntries, userAgent } = deps;
 
   return {
-    async getPreviews(partContext) {
-      const settings = await loadSettings(chromeApi);
+    async getPreviews(partContext, settings) {
       const samacsysFetchImpl = createSamacsysFetchImpl(fetchImpl, {
         chromeApi,
         userAgent,
@@ -69,8 +64,8 @@ function createSamacsysDistributorAdapter(deps) {
       return buildSamacsysPreviewResponse(samacsysFetchImpl, partContext);
     },
 
-    async exportPart(partContext, options = {}) {
-      const exportContext = await createExportContext(chromeApi);
+    async exportPart(partContext, options, settings) {
+      const exportContext = createExportContext(settings);
       const resolvedOptions = resolveExportOptions(options);
       const upstreamAuthorizationHeader = resolveSamacsysAuthorizationHeader(
         exportContext.settings
@@ -115,19 +110,12 @@ function createSamacsysDistributorAdapter(deps) {
 
       if (resolvedOptions.symbol) {
         for (const symbol of assets.symbols) {
-          const rewrittenSymbol = exportContext.settings.downloadIndividually
-            ? symbol.content
-            : rewriteSamacsysSymbolFootprintReference(
-                symbol.content,
-                primaryFootprintName,
-                libraryName
-              );
-
           downloadCount += await writeSymbolArtifact({
             chromeApi,
             downloads,
             exportContext,
-            symbolContent: rewrittenSymbol,
+            symbolContent: symbol.content,
+            footprintName: primaryFootprintName,
             individualFilename: symbol.filename
           });
         }

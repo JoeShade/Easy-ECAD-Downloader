@@ -9,7 +9,7 @@ import { activateProduct, capturePreviews, closeBrowser, downloadItems, launchEx
   openPopup, partContext, popupState, productEvidence, safeScreenshot } from "./browser.js";
 import { identifierChecks } from "./identifiers.js";
 import { classifyFailure } from "./diagnostics.js";
-import { assetTypes, coverageSummary } from "./coverage.js";
+import { coverageSummary, verifiedAssetCategory } from "./coverage.js";
 import { withSamacsysCredentials } from "./credentials.js";
 import { preserveDownloads } from "./download_preservation.js";
 
@@ -103,6 +103,7 @@ export async function collectDownloads(context, popup, run, opts) {
     const items = await downloadItems(context);
     const observed = await accountDownloads(items, context.downloadRoot, { settings: context.settings, extensionId: context.id });
     const accounting = await preserveDownloads(observed, context.downloadRoot, path.join(run.dir, "downloads"));
+    for (const asset of accounting.assets) asset.exportCategory = verifiedAssetCategory(asset, context.settings);
     Object.assign(run.result.stages.downloads, { response: redact(response), ...accounting });
     await run.save();
     context.downloadsPreserved = accounting.preservation.cleanupSafe && Boolean(response) &&
@@ -135,7 +136,7 @@ export async function collectDownloads(context, popup, run, opts) {
   }
   for (const warning of response?.warnings || []) await run.check("downloads", "REVIEW", redact(warning), { category: "extension-observation" });
   for (const id of selected) {
-    const found = state.assets.some(file => file.verified && assetTypes[id].test(file.filename));
+    const found = state.assets.some(file => file.exportCategory === id);
     await run.check("downloads", found ? "PASS" : "REVIEW", found ? "Selected asset category has a completed file" :
       "No completed file for selected asset category; upstream availability needs review", { option: id });
   }
@@ -262,7 +263,7 @@ async function executeRun(opts, credentials) {
     finally { for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.off(signal, interrupt); }
   }
   const files = run.result.stages.downloads.assets || [];
-  if (!interrupted && renderReady && files.some(file => file.verified && /\.(kicad_mod|kicad_sym|step|stp|wrl)$/i.test(file.filename))) {
+  if (!interrupted && renderReady && files.some(file => file.exportCategory && file.exportCategory !== "downloadDatasheet")) {
     try {
       await run.stage("rendering", async () => {
         const args = ["tests/headless-qa/render.py", "--input", path.join(run.dir, "downloads"),

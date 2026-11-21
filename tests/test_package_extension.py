@@ -23,6 +23,7 @@ class PackageTests(unittest.TestCase):
         self.git("init", "--quiet")
         self.manifest = {
             "manifest_version": 3, "version": "1.1.0",
+            "browser_specific_settings": {"gecko": {"id": "easyeda-downloader@joeshade.local"}},
             "background": {"service_worker": "src/main.js", "scripts": ["src/main.js"]},
             "action": {"default_popup": "src/popup.html", "default_icon": {"16": "icons/16.png"}},
             "icons": {"16": "icons/16.png"},
@@ -73,6 +74,8 @@ class PackageTests(unittest.TestCase):
             })
             self.assertIsNone(archive.testzip())
             self.assertEqual(json.loads(archive.read("manifest.json"))["version"], "1.1.0")
+            self.assertEqual(json.loads(archive.read("manifest.json"))["browser_specific_settings"]
+                             ["gecko"]["id"], "easyeda-downloader@joeshade.local")
             self.assertEqual(archive.read("src/assets/background.png"), b"binary\r\nasset")
             self.assertNotIn(b"\r\n", archive.read("src/main.js"))
         checksum = path.with_suffix(".zip.sha256").read_text().strip().split()
@@ -110,6 +113,16 @@ class PackageTests(unittest.TestCase):
                     self.build()
                 path.write_bytes(original)
 
+    def test_missing_or_incorrect_firefox_id_stops_packaging(self):
+        for settings in [{}, {"gecko": {}},
+                         {"gecko": {"id": "easy-ecad-downloader-dev@joeshade.local"}}]:
+            with self.subTest(settings=settings):
+                self.manifest["browser_specific_settings"] = settings
+                self.write_json("manifest.json", self.manifest)
+                with self.assertRaisesRegex(ValueError, "Firefox add-on ID must match the AMO listing"):
+                    self.build()
+                self.assertFalse(self.output.exists())
+
     def test_missing_manifest_and_transitive_resources_stop_packaging(self):
         for name in ["src/main.js", "src/module.js", "src/popup.css", "src/assets/background.png"]:
             with self.subTest(name=name):
@@ -118,6 +131,19 @@ class PackageTests(unittest.TestCase):
                     self.build()
                 self.git("add", name)
         self.assertFalse(self.output.exists())
+
+    def test_required_extension_entrypoints_must_be_declared(self):
+        for section, field in [("background", "service_worker"), ("background", "scripts"),
+                               ("action", "default_popup"), ("options_ui", "page"),
+                               ("content_scripts", "js")]:
+            with self.subTest(section=section, field=field):
+                changed = json.loads(json.dumps(self.manifest))
+                owner = changed[section][0] if section == "content_scripts" else changed[section]
+                del owner[field]
+                self.write_json("manifest.json", changed)
+                with self.assertRaisesRegex(ValueError, "entrypoint"):
+                    self.build()
+                self.assertFalse(self.output.exists())
 
     def test_missing_or_duplicate_changelog_version_stops_packaging(self):
         for changelog in ["## 1.0.0\nOld only\n", "## 1.1.0\nOne\n## 1.1.0\nTwo\n", "## 1.1.0\n"]:

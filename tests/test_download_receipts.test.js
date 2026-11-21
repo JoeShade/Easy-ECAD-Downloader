@@ -62,6 +62,18 @@ describe("download terminal receipts", () => {
     expect(h.listeners.downloadsChanged).toHaveLength(1);
   });
 
+  it("requeries an empty initial snapshot when a completion event arrived during search", async () => {
+    const h = setup();
+    let answer;
+    h.chrome.downloads.search.mockImplementation((_query, callback) => { answer = callback; });
+    const pending = h.write();
+    h.changeDownload(1, { state: "complete" });
+    answer([]);
+    expect(h.chrome.downloads.search).toHaveBeenCalledTimes(2);
+    answer([h.downloadItems.get(1)]);
+    expect(await pending).toMatchObject({ downloadId: 1, state: "complete" });
+  });
+
   it("polls for completion when Chrome emits no terminal event", async () => {
     vi.useFakeTimers();
     const h = setup();
@@ -70,6 +82,18 @@ describe("download terminal receipts", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(await pending).toMatchObject({ state: "complete", filename: "C:/Downloads/no-event.wrl" });
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("accepts a slow terminal query when only the polling timer has fired", async () => {
+    vi.useFakeTimers();
+    const h = setup();
+    let answer;
+    h.chrome.downloads.search.mockImplementation((_query, callback) => { answer = callback; });
+    const pending = h.write("model.wrl", 5000);
+    await vi.advanceTimersByTimeAsync(1500);
+    answer([{ id: 1, state: "complete", filename: "C:/Downloads/model.wrl" }]);
+    expect(h.chrome.downloads.search).toHaveBeenCalledTimes(1);
+    expect(await pending).toMatchObject({ state: "complete" });
   });
 
   it("ignores out-of-order event contents and uses the queried per-ID state", async () => {

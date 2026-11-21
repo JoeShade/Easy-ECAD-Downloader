@@ -16,14 +16,14 @@ import {
 } from "../src/core/settings.js";
 import {
   extractSymbolBlock,
-  mergeSymbolIntoLibrary
+  mergeSymbolIntoLibrary,
+  rewriteSymbolFootprintReference
 } from "../src/core/library_store.js";
 import { createDownloadApi } from "../src/core/downloads.js";
 import {
   extractSamacsysKiCadAssets,
   parseSamacsysPageMetadata,
   rewriteSamacsysFootprintModelPath,
-  rewriteSamacsysSymbolFootprintReference,
   stripKicadFootprintModels
 } from "../src/sources/samacsys_common.js";
 import {
@@ -163,7 +163,7 @@ describe("service worker core helpers", () => {
 
   it("rewrites Mouser symbol and footprint library references", () => {
     expect(
-      rewriteSamacsysSymbolFootprintReference(
+      rewriteSymbolFootprintReference(
         MOUSER_SYMBOL,
         "QFN50P500X500X60-33N-D",
         "Workspace"

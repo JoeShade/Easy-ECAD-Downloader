@@ -79,7 +79,7 @@ const PASSWORD_TOGGLE_LABELS = {
 let currentSettings = { ...DEFAULT_SETTINGS };
 let hasUnsavedChanges = false;
 let isSaving = false;
-let isLoading = true;
+let settingsReady = false;
 let pendingClearHelperSecret = false;
 let pendingClearSamacsysCredentials = false;
 
@@ -94,8 +94,8 @@ function hasSecretValue(value) {
 }
 
 function updateActionState() {
-  saveSettingsEl.disabled = isLoading || isSaving || !hasUnsavedChanges;
-  discardSettingsEl.disabled = isLoading || isSaving || !hasUnsavedChanges;
+  saveSettingsEl.disabled = !settingsReady || isSaving || !hasUnsavedChanges;
+  discardSettingsEl.disabled = !settingsReady || isSaving || !hasUnsavedChanges;
 }
 
 function markDirty(message = "Unsaved changes.") {
@@ -361,7 +361,7 @@ function needsSessionStorage(settings) {
 // remember flags and session secrets are written in order, with local rollback
 // restoring the previous source of truth when the second write fails.
 async function saveSettings() {
-  if (isLoading || isSaving) {
+  if (!settingsReady || isSaving) {
     return;
   }
   const settings = readSettingsFromUi();
@@ -428,6 +428,8 @@ async function saveSettings() {
       try {
         await setStorageArea(chromeApi.storage.local, previousLocalSettings);
       } catch {
+        // Only a fresh storage read can establish which credentials survived.
+        settingsReady = false;
         setStatus("Settings were partly saved. Reload this page to check saved values before retrying.", "error");
         return;
       }
@@ -435,7 +437,7 @@ async function saveSettings() {
     setStatus(error?.message || "Failed to save settings.", "error");
   } finally {
     isSaving = false;
-    settingsForm.removeAttribute("inert");
+    settingsForm.toggleAttribute("inert", !settingsReady);
     updateActionState();
   }
 }
@@ -447,7 +449,7 @@ async function loadSettings() {
   setStatus("Loading settings...");
   try {
     const settings = await loadStoredSettings(chromeApi);
-    isLoading = false;
+    settingsReady = true;
     applySettingsToUi(settings);
     settingsForm.removeAttribute("inert");
     setStatus("");

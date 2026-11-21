@@ -59,9 +59,9 @@ function createEasyedaAdapter(deps) {
       return buildEasyedaPreviewResponse(fetchImpl, partContext);
     },
 
-    async exportPart(partContext, options = {}) {
+    async exportPart(partContext, options, settings) {
       const lcscId = ensureEasyedaLcscId(partContext);
-      const exportContext = await createExportContext(chromeApi);
+      const exportContext = createExportContext(settings);
       const resolvedOptions = resolveExportOptions(options);
 
       let downloadCount = 0;
@@ -73,6 +73,12 @@ function createEasyedaAdapter(deps) {
         symbol: resolvedOptions.symbol,
         footprint: resolvedOptions.footprint
       });
+      // Symbol-only exports can precede the matching footprint download. Use
+      // its package metadata to predict the same name as the footprint writer.
+      const footprintName = sanitizeFilenamePart(
+        kicadFiles.footprint?.name || cadData.packageDetail?.dataStr?.head?.c_para?.package,
+        kicadFiles.footprint ? "footprint" : ""
+      );
       const modelInfo = find3dModelInfo(cadData.packageDetail);
       const safeModelName = modelInfo
         ? sanitizeFilenamePart(modelInfo.name, modelInfo.uuid || "model")
@@ -91,6 +97,7 @@ function createEasyedaAdapter(deps) {
           downloads,
           exportContext,
           symbolContent: kicadFiles.symbol.content,
+          footprintName,
           individualFilename: symbolFilename
         });
       }
@@ -138,11 +145,7 @@ function createEasyedaAdapter(deps) {
       }
 
       if (kicadFiles.footprint) {
-        const footprintFilename = buildSafeFilename(
-          kicadFiles.footprint.name,
-          "kicad_mod",
-          "footprint"
-        );
+        const footprintFilename = `${footprintName}.kicad_mod`;
         const modelPath = resolveEasyedaFootprintModelPath(
           exportContext,
           footprintModelFilename

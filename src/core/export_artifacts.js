@@ -7,13 +7,13 @@
 
 import {
   buildLibraryPaths,
-  DEFAULT_LIBRARY_DOWNLOAD_ROOT,
-  loadSettings
+  DEFAULT_LIBRARY_DOWNLOAD_ROOT
 } from "./settings.js";
 import {
   extractSymbolBlock,
   loadStoredSymbolLibrary,
   mergeSymbolIntoLibrary,
+  rewriteSymbolFootprintReference,
   saveStoredSymbolLibrary
 } from "./library_store.js";
 
@@ -58,8 +58,7 @@ function resolveExportOptions(options = {}) {
   return resolvedOptions;
 }
 
-async function createExportContext(chromeApi) {
-  const settings = await loadSettings(chromeApi);
+function createExportContext(settings) {
   const libraryPaths = buildLibraryPaths(settings.libraryDownloadRoot);
 
   return {
@@ -78,6 +77,7 @@ async function writeSymbolArtifact({
   downloads,
   exportContext,
   symbolContent,
+  footprintName,
   individualFilename
 }) {
   if (exportContext.settings.downloadIndividually) {
@@ -90,13 +90,15 @@ async function writeSymbolArtifact({
   }
 
   return serializeSymbolLibraryWrite(chromeApi, exportContext.symbolLibraryKey, async () => {
-    const symbolBlock = extractSymbolBlock(symbolContent);
+    const librarySymbol = rewriteSymbolFootprintReference(symbolContent, footprintName,
+      getLibraryName(exportContext.libraryPaths));
+    const symbolBlock = extractSymbolBlock(librarySymbol);
     const existingLibrary = await loadStoredSymbolLibrary(
       chromeApi,
       exportContext.symbolLibraryKey
     );
     const mergedLibrary = mergeSymbolIntoLibrary(
-      existingLibrary || symbolContent,
+      existingLibrary || librarySymbol,
       symbolBlock
     );
     await saveStoredSymbolLibrary(

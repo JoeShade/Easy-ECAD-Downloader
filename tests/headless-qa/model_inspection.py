@@ -118,6 +118,9 @@ def scene_framing_hint(board):
         scene_radius = 0
         for footprint in children(parsed, "footprint") + children(parsed, "module"):
             for reference in model_files(footprint, Path(board).parent):
+                if reference["unresolvedVariable"]:
+                    result["limitations"].append(f"Project setting required for model: {reference['reference']}")
+                    continue
                 hint = model_framing_hint(reference["resolved"])
                 result["models"].append({"reference": reference["reference"], **hint})
                 if hint["radiusMm"] is None:
@@ -143,11 +146,11 @@ def scene_framing_hint(board):
     return result
 
 
-def model_inventory(source, file_hashes, verified_paths=None):
+def model_inventory(source, file_hashes, verified_paths=None, datasheets=()):
     """Keep every downloaded model visible, including assets ineligible for inspection."""
     inventory = []
     for relative, digest in sorted(file_hashes.items()):
-        if Path(relative).suffix.lower() not in MODEL_SUFFIXES:
+        if relative in datasheets or Path(relative).suffix.lower() not in MODEL_SUFFIXES:
             continue
         eligible = verified_paths is None or relative in verified_paths
         inventory.append({"relativePath": relative, "sha256": digest, "downloaded": True,
@@ -169,7 +172,7 @@ def associate_models(inventory, footprints, copied, original=None):
             parsed = parse_sexpr(footprint.read_text(encoding="utf-8-sig"))
             for model in model_files(parsed, footprint.parent):
                 reference = {"footprint": footprint.relative_to(copied).as_posix(), **model}
-                record = by_path.get(Path(model["resolved"]))
+                record = by_path.get(Path(model["resolved"])) if model["resolved"] else None
                 if record:
                     record["references"].append(reference)
                 else:

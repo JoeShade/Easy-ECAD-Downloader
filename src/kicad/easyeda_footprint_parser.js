@@ -6,6 +6,31 @@
 
 import { toBool, toNumber } from "./shared.js";
 
+// Older regions store just x/y pairs. An SVG moveto followed by more pairs
+// draws the same contour, so both the preview and KiCad read one path format.
+function footprintRegionPath(value) {
+  const path = String(value || "").trim();
+  return /^[+\d.-]/.test(path) ? `M ${path}` : path;
+}
+
+// Standard records store layer, id, lock and stroke after the four dimensions.
+// Earlier converter inputs put stroke, id, layer and a boolean lock there.
+function parseFootprintRectangle(fields) {
+  const legacy = fields.length === 8 &&
+    (/^(?:true|false)$/i.test(fields[7]) || toNumber(fields[6]) > 1);
+  return {
+    x: toNumber(fields[0]),
+    y: toNumber(fields[1]),
+    width: toNumber(fields[2]),
+    height: toNumber(fields[3]),
+    layerId: toNumber(fields[legacy ? 6 : 4]),
+    id: fields[5] || "",
+    isLocked: toBool(fields[legacy ? 7 : 6]),
+    strokeWidth: toNumber(fields[legacy ? 4 : 7]),
+    fill: fields[8] || "none"
+  };
+}
+
 // Decode '~'-delimited source records into named fields while retaining source
 // units. The emitter converts lengths together, keeping metadata rotations in degrees.
 function parseEasyedaFootprint(cadData) {
@@ -33,6 +58,7 @@ function parseEasyedaFootprint(cadData) {
     circles: [],
     arcs: [],
     rectangles: [],
+    solidRegions: [],
     texts: []
   };
 
@@ -112,15 +138,12 @@ function parseEasyedaFootprint(cadData) {
         isLocked: toBool(fields[6])
       });
     } else if (designator === "RECT") {
-      footprint.rectangles.push({
-        x: toNumber(fields[0]),
-        y: toNumber(fields[1]),
-        width: toNumber(fields[2]),
-        height: toNumber(fields[3]),
-        strokeWidth: toNumber(fields[4]),
-        id: fields[5] || "",
-        layerId: toNumber(fields[6]),
-        isLocked: toBool(fields[7])
+      footprint.rectangles.push(parseFootprintRectangle(fields));
+    } else if (designator === "SOLIDREGION") {
+      footprint.solidRegions.push({
+        layerId: toNumber(fields[0]),
+        path: footprintRegionPath(fields[2]),
+        type: (fields[3] || "solid").trim().toLowerCase()
       });
     } else if (designator === "TEXT") {
       footprint.texts.push({
@@ -166,7 +189,7 @@ function parseEasyedaFootprint(cadData) {
   return footprint;
 }
 
-export { parseEasyedaFootprint };
+export { footprintRegionPath, parseEasyedaFootprint, parseFootprintRectangle };
 
 /*
 ######################################################################################################################

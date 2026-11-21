@@ -1,3 +1,4 @@
+# Register the explicitly invoked matrix QA skill and its evidence-review prompt.
 interface:
   display_name: "Easy ECAD — Extension-only QA"
   short_description: "Inspect extension-owned defects; exclude upstream failures"

@@ -59,7 +59,9 @@ function getSourceAdapter(provider, deps) {
   return createSourceAdapters(deps)[provider];
 }
 
-async function getPartPreviews(partContext, deps = createRuntimeDeps()) {
+// Gate and execute each request against the same settings snapshot. Changing
+// the relay or download layout takes effect on the next popup request.
+async function prepareRequest(partContext, deps) {
   const normalizedPartContext = normalizePartContext(partContext);
   if (!normalizedPartContext) {
     throw new Error("No supported part found on the page.");
@@ -79,31 +81,17 @@ async function getPartPreviews(partContext, deps = createRuntimeDeps()) {
   if (!adapter) {
     throw new Error("Unsupported provider.");
   }
-  return adapter.getPreviews(normalizedPartContext);
+  return { adapter, context: normalizedPartContext, settings };
+}
+
+async function getPartPreviews(partContext, deps = createRuntimeDeps()) {
+  const { adapter, context, settings } = await prepareRequest(partContext, deps);
+  return adapter.getPreviews(context, settings);
 }
 
 async function exportPart(partContext, options = {}, deps = createRuntimeDeps()) {
-  const normalizedPartContext = normalizePartContext(partContext);
-  if (!normalizedPartContext) {
-    throw new Error("No supported part found on the page.");
-  }
-  const settings = deps.settings || (await loadSettings(deps.chromeApi));
-
-  const blockedError = getBlockedPartContextError(
-    normalizedPartContext,
-    deps.userAgent || globalThis.navigator?.userAgent,
-    settings.samacsysFirefoxProxyBaseUrl
-  );
-  if (blockedError) {
-    throw new Error(blockedError);
-  }
-
-  const adapter = getSourceAdapter(normalizedPartContext.provider, deps);
-  if (!adapter) {
-    throw new Error("Unsupported provider.");
-  }
-
-  return adapter.exportPart(normalizedPartContext, options);
+  const { adapter, context, settings } = await prepareRequest(partContext, deps);
+  return adapter.exportPart(context, options, settings);
 }
 
 // Each listener shares the worker's adapters and download cleanup subscription.

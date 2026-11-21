@@ -2,9 +2,10 @@
  * Execute the production content script in jsdom with real message listeners
  * and mocked Chrome registration for provider detection regression tests.
  */
+import vm from "node:vm";
 import { vi } from "vitest";
 import { JSDOM } from "jsdom";
-import { runSourceFile } from "./test_harness.js";
+import { readRepoFile } from "./test_harness.js";
 
 export function loadContentScript(
   markup,
@@ -27,31 +28,26 @@ export function loadContentScript(
     }
   };
 
-  const context = runSourceFile("src/content_script.js", {
-    context: {
-      chrome,
-      document: dom.window.document,
-      window: dom.window
-    },
-    append: `
-globalThis.__testExports = {
+  // The extension injects a classic script. Evaluate its helper names in the
+  // same isolated scope while keeping the real message listener registered.
+  const context = vm.createContext({ chrome, URL, document: dom.window.document, window: dom.window });
+  const filename = "src/content_script.js";
+  const script = new vm.Script(readRepoFile(filename) + `
+({
   parseLoadPartDivCall,
   buildSamacsysEntryUrl,
   parseSamacsysLinkUrl,
   parseEasyedaProductUrl,
-  findLcscId,
-  findManufacturerPartNumber,
   findMouserPartContext,
   findFarnellPartContext,
   findEasyedaPartContext,
   findPartContext
-};
-`
-  });
+});`, { filename });
+  const hooks = script.runInContext(context);
 
   return {
     dom,
-    hooks: context.__testExports,
+    hooks,
     listener: listeners[0],
     requestContext() {
       const respond = vi.fn();

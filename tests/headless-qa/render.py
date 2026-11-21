@@ -208,13 +208,11 @@ def render_assets(evidence, cli, source, project, verified_paths=None):
         raise ValueError("Input download directory does not exist")
     if source == project or source in project.parents or source == evidence.output or source in evidence.output.parents:
         raise ValueError("Output/project directories must be outside the input directory")
-    if any(file.is_symlink() for file in source.rglob("*")):
-        raise ValueError("Input symlinks are not supported")
     original_hashes = hashes(source)
     if "inputHashes" in evidence.data and evidence.data["inputHashes"] != original_hashes:
         raise ValueError("Downloaded originals changed before rendering")
     evidence.data["inputHashes"] = original_hashes
-    evidence.data["models"] = model_inventory(source, original_hashes, verified_paths)
+    evidence.data["models"] = model_inventory(source, original_hashes, verified_paths, evidence.data.get("datasheetPaths", ()))
     inventory = evidence.data["models"]
     update_coverage(evidence)
     for relative in original_hashes:
@@ -294,6 +292,11 @@ def render_assets(evidence, cli, source, project, verified_paths=None):
                                "Model resolution cannot be assessed because fixture calibration failed",
                                category="exported-asset" if fixture_ok else "fixture", **model)
             referenced = [model for model in inventory if any(reference["footprint"] == footprint.relative_to(copied).as_posix() for reference in model["references"])]
+            # Native KiCad also expands model variables. Run the assembly only
+            # when the fixture can establish the source of each substitution.
+            if any(model["unresolvedVariable"] for model in fixture["models"]):
+                evidence.check("BLOCKED", "Assembly requires an unresolved KiCad project setting", category="input", file=str(footprint))
+                continue
             if any(not model["downloadVerified"] for model in referenced):
                 evidence.check("BLOCKED", "Primary assembly references a final model asset that was not verified", category="input", file=str(footprint))
                 continue
@@ -363,12 +366,20 @@ def main():
     evidence.data["inputDirectory"] = str(args.input.resolve()) if args.input else None
     try:
         verified_paths = None
+        if args.input and args.input.is_dir():
+            evidence.data["inputHashes"] = hashes(args.input)
         if args.inventory:
             report = json.loads(args.inventory.read_text(encoding="utf-8-sig"))
             verified_paths = verified_download_paths(report, args.input)
-        if args.input and args.input.is_dir():
-            evidence.data["inputHashes"] = hashes(args.input.resolve())
-            evidence.data["models"] = model_inventory(args.input.resolve(), evidence.data["inputHashes"], verified_paths)
+            # Keep the original document in the hash inventory. The browser's
+            # grouped download category determines its purpose even for a .step URL.
+            datasheets = [asset["relativePath"] for asset in report["stages"]["downloads"]["assets"]
+                          if asset["verified"] and asset.get("exportCategory") == "downloadDatasheet"]
+            evidence.data["datasheetPaths"] = datasheets
+            verified_paths.difference_update(datasheets)
+        if "inputHashes" in evidence.data:
+            evidence.data["models"] = model_inventory(args.input.resolve(), evidence.data["inputHashes"], verified_paths,
+                                                      evidence.data.get("datasheetPaths", ()))
             plan_inspections(evidence, args.input.resolve(), verified_paths)
         cli = evidence.preflight(args.kicad_cli)
         if not args.preflight:
@@ -380,9 +391,13 @@ def main():
         evidence.data["execution"] = "FAILED"
         evidence.check("BLOCKED", str(error), category="environment" if args.preflight or isinstance(error, (OSError, ModuleNotFoundError)) else "harness")
     finally:
-        if args.input and args.input.is_dir() and evidence.data.get("inputHashes") is not None:
-            evidence.check("PASS" if hashes(args.input.resolve()) == evidence.data["inputHashes"] else "FAIL",
-                           "Downloaded originals unchanged after renderer exit (SHA-256 comparison)")
+        if "inputHashes" in evidence.data:
+            try:
+                unchanged = hashes(args.input) == evidence.data["inputHashes"]
+            except (OSError, ValueError) as error:
+                evidence.check("BLOCKED", "Final source hash comparison unavailable", category="input", error=str(error))
+            else:
+                evidence.check("PASS" if unchanged else "FAIL", "Downloaded originals unchanged after renderer exit (SHA-256 comparison)")
         evidence.data["finishedAt"] = now()
         update_coverage(evidence)
         evidence.save()

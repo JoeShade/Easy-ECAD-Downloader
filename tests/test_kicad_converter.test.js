@@ -17,6 +17,105 @@ import {
 } from "../src/kicad_converter.js";
 import { escapeKiCadString, quoteKiCadAtom, rotate } from "../src/kicad/shared.js";
 
+// These reduced records retain the reported components' EasyEDA coordinates
+// and paint fields. Assertions exercise the library text delivered to KiCad.
+describe("reported symbol export geometry", () => {
+  function library(shape, x = 400, y = 300) {
+    const cad = createCadData();
+    Object.assign(cad.dataStr.head, { x, y });
+    cad.dataStr.shape = shape;
+    return convertEasyedaCadToKicad(cad, { symbol: true }).symbol.content;
+  }
+
+  it("retains the TPS62160 pin-one and HR911105A junction ink alongside open switch contacts", () => {
+    const content = library([
+      "E~362.5~277.5~1.5~1.5~#880000~1~0~#880000~gge2~0",
+      "E~220~-230~1~1~#880000~1~0~#880000~gge3284~0",
+      "E~400~298~1~1~#880000~1~0~none~gge79~0",
+      "C~400~300~1~#000~1~0~#000~circle~0"
+    ]);
+    const fills = [...content.matchAll(/\(circle\b[\s\S]*?\(fill \(type (\w+)\)\)/g)].map(match => match[1]);
+    expect(fills).toEqual(["outline", "outline", "outline", "none"]);
+    expect(content).toContain("(center -9.53 5.71)");
+    expect(content).toMatch(/\(radius 0.25\)\s+\(stroke \(width 0.254\)[\s\S]*?\(fill \(type none\)\)/);
+  });
+
+  it("distinguishes solid diode paths and transistor arrows from background and unpainted polygons", () => {
+    const content = library([
+      "PT~M 395 294 L 405 300 L 395 307 Z ~#880000~1~0~#880000~gge7~0~",
+      "PT~M 411 317 L 407 315 L 409 313 Z ~#880000~1~0~#880000~gge61~0~",
+      "PT~M 415 313 L 411 311 L 413 309 Z ~#880000~1~0~#880000~gge64~0~",
+      "PG~410 310 407 305 404 309~#880000~1~0~#880000~gge27~0",
+      "PG~-10 0 -4 2 -4 -2~#880000~1~0~#FEFEFE~gge37~0",
+      "PG~0 10 -5 12 -5 8~#880000~1~0~#EFEFEF~rep7~0",
+      "PL~0 20 0 0 10 0 10 20 0 20~#880000~1~0~none~rep3~0"
+    ]);
+    const fills = [...content.matchAll(/\(polyline\b[\s\S]*?\(fill \(type (\w+)\)\)/g)].map(match => match[1]);
+    expect(fills).toEqual(["none", "outline", "background", "background", "outline", "outline", "outline"]);
+  });
+
+  it("keeps the ACS758 major arcs joined through their full circular sensing loop", () => {
+    const content = library([
+      "A~M 382 300 A 2.062 2.062 0 1 0 382 301~~#8D2323~1~0~none~gge8~0",
+      "A~M 384 300 A 4.016 4.016 0 1 0 384 301~~#8D2323~1~0~none~gge9~0"
+    ]);
+    const arcs = [...content.matchAll(/\(arc\s+\(start ([^)]+)\)\s+\(mid ([^)]+)\)\s+\(end ([^)]+)\)/g)];
+    expect(arcs.map(match => match.slice(1))).toEqual([
+      ["-4.57 0.00", "-5.14 0.39", "-5.60 -0.13"],
+      ["-5.60 -0.13", "-5.14 -0.65", "-4.57 -0.25"],
+      ["-4.06 0.00", "-5.14 0.89", "-6.10 -0.13"],
+      ["-6.10 -0.13", "-5.14 -1.15", "-4.06 -0.25"]
+    ]);
+    expect(content.match(/\(fill \(type none\)\)/g)).toHaveLength(4);
+  });
+
+  it("bows opposing KMS-1102NL elliptical windings toward the core", () => {
+    const content = library([
+      "A~M 374 265 A 3 2.5 0 1 1 374 270~~#8D2323~1~0~none~gge151~0",
+      "A~M 386 265 A 3 2.5 0 1 0 386 270~~#8D2323~1~0~none~gge178~0",
+      "A~M 415 244 A 2.5 3 0 1 0 420 244~~#8D2323~1~0~none~gge220~0"
+    ], 0, 0);
+    const outlines = [...content.matchAll(/\(pts([\s\S]*?)\n\s*\)/g)].map(match =>
+      [...match[1].matchAll(/\(xy ([\d.-]+) ([\d.-]+)\)/g)].map(point => point.slice(1).map(Number))
+    );
+    // Three source units at the crown of each elliptical arc equal 0.762 mm.
+    const [left, right, top] = outlines;
+    expect(Math.max(...left.map(([x]) => x)) - left[0][0]).toBeCloseTo(0.762, 1);
+    expect(right[0][0] - Math.min(...right.map(([x]) => x))).toBeCloseTo(0.762, 1);
+    expect(top[0][1] - Math.min(...top.map(([, y]) => y))).toBeCloseTo(0.762, 1);
+  });
+
+  it("points both mirrored Nichicon pins from their electrical anchors to the capacitor plates", () => {
+    const content = library([
+      "P~show~0~2~400~320~90~gge8~0^^400~320^^M 400 320 v -19~#8D2323",
+      "P~show~0~1~400~280~270~gge15~0^^400~280^^M 400 280 v 17~#8D2323",
+      "PL~390 297 410 297~#8D2323~1~0~none~gge7~0"
+    ]);
+    expect(content).toMatch(/\(at 0.00 -5.08 90\)\s+\(length 4.83\)/);
+    expect(content).toMatch(/\(at 0.00 5.08 270\)\s+\(length 4.32\)/);
+    expect(content).toContain("(xy -2.54 0.76)");
+  });
+
+  it("connects both RC0201FR-0710KL pins when their strokes start at the resistor body", () => {
+    // C106225's source rectangle spans x=390..410; each stroke ends at its
+    // electrical anchor. KiCad draws each pin inward from that anchor.
+    const content = library([
+      "R~390~296~~~20~8~#A00000~1~0~none~gge3~0",
+      "P~show~0~2~420~300~0~gge4~0^^420~300^^M 410 300 h 10~#800",
+      "P~show~0~1~380~300~180~gge11~0^^380~300^^M 390 300 h -10~#800"
+    ]);
+    expect(content).toContain("(start -2.54 1.02)");
+    expect(content).toContain("(end 2.54 -1.02)");
+    expect(content).toMatch(/\(at 5.08 0.00 180\)\s+\(length 2.54\)/);
+    expect(content).toMatch(/\(at -5.08 0.00 0\)\s+\(length 2.54\)/);
+  });
+
+  it("connects reversed vertical strokes with an absolute endpoint", () => {
+    const content = library(["P~show~0~1~400~320~90~pin~0^^400~320^^M400,301V320~#800"]);
+    expect(content).toMatch(/\(at 0.00 -5.08 90\)\s+\(length 4.83\)/);
+  });
+});
+
 describe("kicad converter", () => {
   it("applies EasyEDA text styling rules to suffix-marked labels", () => {
     expect(applyTextStyle("RESET#")).toBe("~{RESET}");
@@ -97,6 +196,25 @@ describe("kicad converter", () => {
     expect(footprint.content).not.toContain('NaN');
   });
 
+  it.each([
+    ["TRACK~1~3~~100 200 110 200 120~track"],
+    ["TRACK~1~3~~100 200 bad 200~track"],
+    ["PAD~POLYGON~100~200~10~10~1~~1~0~~0~pad"],
+    ["PAD~POLYGON~100~200~10~10~1~~1~0~100 195 105 205 95~0~pad"]
+  ])("rejects incomplete or nonnumeric footprint point lists: %s", record => {
+    const cad = createCadData();
+    cad.packageDetail.dataStr.shape = [record];
+    expect(() => convertEasyedaCadToKicad(cad, { footprint: true })).toThrow(/coordinate/i);
+  });
+
+  it("rounds footprint coordinates after subtracting the source origin", () => {
+    const cad = createCadData();
+    cad.packageDetail.dataStr.head.x = 4000.01;
+    cad.packageDetail.dataStr.shape = ["TRACK~1~3~~4000.01 200 4000.025 210"];
+    const { footprint } = convertEasyedaCadToKicad(cad, { footprint: true });
+    expect(footprint.content).toContain("(fp_line (start 0.00 0.00) (end 0.00 2.54)");
+  });
+
   it("escapes upstream strings without changing KiCad expression boundaries", () => {
     const cad = createCadData();
     cad.dataStr.head.c_para.name = 'Logic "Buffer"\\A';
@@ -169,6 +287,33 @@ describe("kicad converter", () => {
 
     expect(spaced).toBe(compact);
     expect(spaced).toContain('(fp_arc (start 2.54 0.00) (end 5.08 0.00) (angle -180.00)');
+  });
+
+  it("exports flat and elliptical footprint arcs along their SVG contours", () => {
+    const cad = createCadData();
+    cad.packageDetail.dataStr.shape = [
+      "ARC~1~3~~M100 200 A0 5 0 0 1 110 200 A5 0 0 0 1 120 200",
+      "ARC~1~4~~M100 200 A10 5 0 0 1 120 200",
+      "ARC~1~3~~M125 200 A5 5 0 0 1 125 200"
+    ];
+    const { footprint } = convertEasyedaCadToKicad(cad, { footprint: true });
+    expect(footprint.content).not.toContain("(fp_arc");
+    expect(footprint.content).toContain("(fp_line (start 0.00 0.00) (end 2.54 0.00) (layer F.SilkS) (width 0.25))");
+    expect(footprint.content).toContain("(fp_line (start 2.54 0.00) (end 5.08 0.00) (layer F.SilkS) (width 0.25))");
+    const ellipse = footprint.content.split("\n").filter(line => line.includes("(layer B.SilkS)"));
+    expect(ellipse.length).toBeGreaterThan(2);
+    expect(ellipse[0]).toContain("(start 0.00 0.00)");
+    expect(ellipse.at(-1)).toContain("(end 5.08 0.00)");
+    const ys = ellipse.map(line => Number(line.match(/\(end [\d.-]+ ([\d.-]+)\)/)[1]));
+    expect(Math.min(...ys)).toBeCloseTo(-1.27, 1);
+  });
+
+  it("preserves the closing stroke of a closed footprint arc", () => {
+    const cad = createCadData();
+    cad.packageDetail.dataStr.shape = ["ARC~1~3~~M100 200 A10 10 0 0 1 120 200 Z"];
+    const { footprint } = convertEasyedaCadToKicad(cad, { footprint: true });
+    expect(footprint.content).toContain("(angle -180.00)");
+    expect(footprint.content).toContain("(fp_line (start 5.08 0.00) (end 0.00 0.00)");
   });
 
   it("keeps an open polyline unfilled when only its endpoint X coordinates match", () => {
@@ -266,6 +411,14 @@ f 1 2 3
     expect(wrl).toContain("Shape{");
   });
 
+  it("preserves indented material colors and falls back for incomplete RGB triples", () => {
+    const mesh = "  newmtl body\n\tKd\t0.1  0.2  0.3 # coating\n  Ks 0.8 0.9\n  endmtl\n" +
+      "v 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl body\nf 1 2 3";
+    const wrl = convertObjToWrlString(mesh);
+    expect(wrl).toContain("diffuseColor 0.1 0.2 0.3\n");
+    expect(wrl).toContain("specularColor 0 0 0\n");
+  });
+
   it("writes each referenced OBJ point once and supplies missing-material colors", () => {
     const wrl = convertObjToWrlString("v 0 0 0\nv 2.54 0 0\nv 0 2.54 0\nusemtl body\nf 1 2 3");
     const points = wrl.match(/point \[\s*([\s\S]*?)\s*\]/)[1].split(", ");
@@ -279,6 +432,12 @@ f 1 2 3
     expect(wrl).toContain("diffuseColor 0.8 0.8 0.8");
     expect(wrl).toContain("specularColor 0 0 0");
   });
+
+  it.each(["", "v 0 0 0", "v 0 0 0\nv 1 1 1\nf 1 2"])(
+    "rejects OBJ responses without a renderable face", mesh => {
+      expect(() => convertObjToWrlString(mesh)).toThrow(/face/i);
+    }
+  );
 
   it("exports default-material OBJ faces and signed indices relative to each face", () => {
     // The fourth vertex follows the first face, so its negative indices refer

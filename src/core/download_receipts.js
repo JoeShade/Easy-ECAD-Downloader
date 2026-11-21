@@ -38,8 +38,7 @@ function waitForDownload(chromeApi, downloadId, requestedFilename, onTerminal, t
     }
 
     function inspect() {
-      if (settled) return;
-      if (querying) { inspectAgain = true; return; }
+      if (settled || querying) return;
       querying = true;
       try {
         chromeApi.downloads.search({ id: downloadId }, items => {
@@ -48,11 +47,11 @@ function waitForDownload(chromeApi, downloadId, requestedFilename, onTerminal, t
           if (settled) return;
           if (error) { unverified("Browser download query failed."); return; }
           const item = items?.find(candidate => candidate.id === downloadId);
-          if (!item) { unverified("Browser download item is missing."); return; }
-          if (!initialFilename && item.filename) initialFilename = item.filename;
+          if (!initialFilename && item?.filename) initialFilename = item.filename;
           // An event during search invalidates its snapshot, including a stale
           // terminal result. Requery after subscribing to obtain a current snapshot.
           if (inspectAgain) { inspectAgain = false; inspect(); return; }
+          if (!item) { unverified("Browser download item is missing."); return; }
           if (item.state === "complete" || item.state === "interrupted") {
             onTerminal();
             finish({ state: item.state, filename: item.filename, error: item.error,
@@ -63,7 +62,11 @@ function waitForDownload(chromeApi, downloadId, requestedFilename, onTerminal, t
     }
 
     function changed(delta) {
-      if (delta.id === downloadId) inspect();
+      if (delta.id !== downloadId) return;
+      // A browser change invalidates an in-flight snapshot. A timer tick can
+      // share that query even if the browser takes longer than a polling period.
+      if (querying) inspectAgain = true;
+      else inspect();
     }
 
     chromeApi.downloads.onChanged.addListener(changed);

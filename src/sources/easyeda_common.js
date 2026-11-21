@@ -5,11 +5,12 @@
  */
 
 import {
-  makeBase64DataUrl,
   makeSvgDataUrl,
-  normalizeUrl,
   sanitizeFilenamePart
 } from "../core/preview_data.js";
+import { footprintRegionPath, parseFootprintRectangle } from "../kicad/easyeda_footprint_parser.js";
+import { findEasyedaDatasheetUrl } from "../kicad/easyeda_symbol_parser.js";
+import { padDrillSize, symbolFillType, toNumber } from "../kicad/shared.js";
 
 const EASYEDA_API_ENDPOINT =
   "https://easyeda.com/api/products/{lcscId}/components?version=6.4.19.5";
@@ -19,11 +20,6 @@ const EASYEDA_MODEL_STEP_ENDPOINT =
 const FOOTPRINT_PREVIEW_BACKGROUND = "#f8fafc";
 const FOOTPRINT_PREVIEW_COPPER = "#0f172a";
 const FOOTPRINT_PREVIEW_BODY = "#cbd5e1";
-
-function toNumber(value, fallback = 0) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : fallback;
-}
 
 function parsePoints(pointsText) {
   const raw = String(pointsText || "").trim().split(/\s+/);
@@ -47,15 +43,9 @@ function escapeSvgAttribute(value) {
 }
 
 function symbolPreviewFill(value) {
-  const fill = String(value || "").trim().toLowerCase();
-  // Keep the monochrome preview: solid source paint uses the foreground;
-  // white masks underlying geometry with the popup's preview background.
-  if (fill === "white" || fill === "#fff" || fill === "#ffffff") {
-    return "#f8fafc";
-  }
-  return /^(?:#[0-9a-f]{3}(?:[0-9a-f]{3})?|black|silver|gray|maroon|red|purple|fuchsia|green|lime|olive|yellow|navy|blue|teal|aqua)$/.test(fill)
-    ? "#111827"
-    : "none";
+  const fill = symbolFillType(value);
+  if (fill === "background") return "#f8fafc";
+  return fill === "outline" ? "#111827" : "none";
 }
 
 function buildSvgDocument(viewBox, body, options = {}) {
@@ -125,12 +115,21 @@ function buildSymbolPreviewSvg(cadData) {
         // separate KiCad exporter owns its restricted CAD conversion rules.
         svgParts.push(`<path d="${escapeSvgAttribute(path)}" stroke-width="1" fill="${symbolPreviewFill(fields[4])}" />`);
       }
-    } else if (designator === "C") {
+    } else if (designator === "C" || designator === "E") {
       const fields = line.split("~").slice(1);
       const cx = toNumber(fields[0]);
       const cy = toNumber(fields[1]);
-      const radius = toNumber(fields[2]);
-      svgParts.push(`<circle cx="${cx}" cy="${cy}" r="${radius}" stroke-width="1" />`);
+      const rx = toNumber(fields[2]);
+      // EasyEDA commonly encodes round pin markers and contacts as ellipses.
+      // Their second radius shifts the stroke, width, style and fill fields.
+      const ellipse = designator === "E";
+      const ry = ellipse ? toNumber(fields[3]) : rx;
+      if (rx <= 0 || ry <= 0) continue;
+      const fill = symbolPreviewFill(ellipse ? fields[7] : fields[6] ?? fields[5]);
+      const width = toNumber(fields[ellipse ? 5 : 4]);
+      const geometry = ellipse ? `ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"` :
+        `circle cx="${cx}" cy="${cy}" r="${rx}"`;
+      svgParts.push(`<${geometry} stroke-width="${width > 0 ? width : 1}" fill="${fill}" />`);
     } else if (designator === "A") {
       const fields = line.split("~").slice(1);
       const path = String(fields[0] || "").trim();
@@ -141,6 +140,24 @@ function buildSymbolPreviewSvg(cadData) {
   }
 
   return buildSvgDocument(viewBox, svgParts.join("\n"));
+}
+
+// Oval pads and slots are obrounds: two semicircular caps joined by straight
+// edges. Their width and height are measured before placement rotation.
+function footprintRectSvg(cx, cy, width, height, rounded, paint, transform) {
+  const radius = rounded ? ` rx="${Math.min(width, height) / 2}"` : "";
+  return `<rect x="${cx - width / 2}" y="${cy - height / 2}" width="${width}" height="${height}"${radius} ${paint}${transform} />`;
+}
+
+function footprintDrillSvg(cx, cy, width, height, transform = "") {
+  // A fine edge keeps a freestanding locating hole visible against the
+  // background. Scale it down on small vias to retain the open center.
+  const strokeWidth = Math.min(0.3, Math.min(width, height) / 8);
+  const paint = `fill="${FOOTPRINT_PREVIEW_BACKGROUND}" stroke="${FOOTPRINT_PREVIEW_COPPER}" stroke-width="${strokeWidth}"`;
+  if (width === height) {
+    return `<circle cx="${cx}" cy="${cy}" r="${width / 2}" ${paint} />`;
+  }
+  return footprintRectSvg(cx, cy, width, height, true, paint, transform);
 }
 
 function buildFootprintPreviewSvg(cadData) {
@@ -159,7 +176,19 @@ function buildFootprintPreviewSvg(cadData) {
     height: (height > 0 ? height : 120) + pad * 2
   };
   const shapes = dataStr.shape || [];
-  const svgParts = [];
+  const body = [];
+  const pinArtwork = [];
+  const copper = [];
+  const markings = [];
+  const drills = [];
+  const copperPaint = `fill="${FOOTPRINT_PREVIEW_COPPER}" stroke="none"`;
+  // Component body (99) and component pin artwork (100) can appear after
+  // board geometry in the payload. Keep their cutouts and fills behind it.
+  function graphicsLayer(layerId) {
+    if (layerId === 99) return body;
+    if (layerId === 100) return pinArtwork;
+    return markings;
+  }
 
   for (const line of shapes) {
     const parts = line.split("~");
@@ -175,34 +204,32 @@ function buildFootprintPreviewSvg(cadData) {
       const padPoints = parsePoints(fields[9]);
       const rotation = toNumber(fields[10]);
       const holeRadius = toNumber(fields[8]);
+      const transform = rotation ? ` transform="rotate(${-rotation} ${centerX} ${centerY})"` : "";
       // Oval point fields can contain axis guide points. Their visible outline
       // comes from the center, size and rotation.
       if (padPoints.length >= 3 && shape !== "OVAL" && shape !== "ELLIPSE") {
         const polygon = pointsToSvg(padPoints);
-        svgParts.push(`<polygon points="${polygon}" fill="#0f172a" stroke="none" />`);
-      } else if (shape === "ELLIPSE" || shape === "OVAL") {
-        const transform = rotation ? ` transform="rotate(${rotation} ${centerX} ${centerY})"` : "";
-        svgParts.push(
-          `<ellipse cx="${centerX}" cy="${centerY}" rx="${width / 2}" ry="${height / 2}" fill="${FOOTPRINT_PREVIEW_COPPER}" stroke="none"${transform} />`
-        );
+        copper.push(`<polygon points="${polygon}" ${copperPaint} />`);
+      } else if (shape === "ELLIPSE") {
+        copper.push(`<ellipse cx="${centerX}" cy="${centerY}" rx="${width / 2}" ry="${height / 2}" ${copperPaint}${transform} />`);
       } else {
-        const x = centerX - width / 2;
-        const y = centerY - height / 2;
-        const rect = `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${FOOTPRINT_PREVIEW_COPPER}" stroke="none"`;
-        if (rotation) {
-          svgParts.push(`${rect} transform="rotate(${rotation} ${centerX} ${centerY})" />`);
-        } else {
-          svgParts.push(`${rect} />`);
-        }
+        copper.push(footprintRectSvg(centerX, centerY, width, height, shape === "OVAL", copperPaint, transform));
       }
-      if (holeRadius > 0) {
-        svgParts.push(
-          `<circle cx="${centerX}" cy="${centerY}" r="${holeRadius}" fill="#f8fafc" stroke="#0f172a" stroke-width="0.4" />`
-        );
+      const drill = padDrillSize(holeRadius, toNumber(fields[12]), height, width);
+      if (drill) {
+        drills.push(footprintDrillSvg(centerX, centerY, drill.width, drill.height, transform));
       }
+    } else if (designator === "VIA" || designator === "HOLE") {
+      const x = toNumber(fields[0]);
+      const y = toNumber(fields[1]);
+      if (designator === "VIA") {
+        copper.push(`<circle cx="${x}" cy="${y}" r="${toNumber(fields[2]) / 2}" ${copperPaint} />`);
+      }
+      const diameter = 2 * toNumber(designator === "VIA" ? fields[4] : fields[2]);
+      if (diameter > 0) drills.push(footprintDrillSvg(x, y, diameter, diameter));
     } else if (designator === "SOLIDREGION") {
       const layerId = toNumber(fields[0]);
-      const path = String(fields[2] || "").trim();
+      const path = footprintRegionPath(fields[2]);
       const regionType = String(fields[3] || "solid").trim().toLowerCase();
       if (path) {
         const fill = regionType === "cutout"
@@ -210,41 +237,41 @@ function buildFootprintPreviewSvg(cadData) {
           : layerId === 99
             ? FOOTPRINT_PREVIEW_BODY
             : FOOTPRINT_PREVIEW_COPPER;
-        svgParts.push(`<path d="${escapeSvgAttribute(path)}" fill="${fill}" stroke="none" />`);
+        graphicsLayer(layerId).push(`<path d="${escapeSvgAttribute(path)}" fill="${fill}" stroke="none" />`);
       }
     } else if (designator === "TRACK") {
       const strokeWidth = toNumber(fields[0], 0.2);
       const points = pointsToSvg(parsePoints(fields[3]));
       if (points) {
-        svgParts.push(`<polyline points="${points}" stroke-width="${strokeWidth}" />`);
+        graphicsLayer(toNumber(fields[1])).push(`<polyline points="${points}" stroke-width="${strokeWidth}" />`);
       }
     } else if (designator === "CIRCLE") {
       const cx = toNumber(fields[0]);
       const cy = toNumber(fields[1]);
       const radius = toNumber(fields[2]);
       const strokeWidth = toNumber(fields[3], 0.2);
-      svgParts.push(
+      graphicsLayer(toNumber(fields[4])).push(
         `<circle cx="${cx}" cy="${cy}" r="${radius}" stroke-width="${strokeWidth}" />`
       );
     } else if (designator === "ARC") {
       const strokeWidth = toNumber(fields[0], 0.2);
       const path = String(fields[3] || "").trim();
       if (path) {
-        svgParts.push(`<path d="${escapeSvgAttribute(path)}" stroke-width="${strokeWidth}" />`);
+        graphicsLayer(toNumber(fields[1])).push(`<path d="${escapeSvgAttribute(path)}" stroke-width="${strokeWidth}" />`);
       }
     } else if (designator === "RECT") {
-      const x = toNumber(fields[0]);
-      const y = toNumber(fields[1]);
-      const width = toNumber(fields[2]);
-      const height = toNumber(fields[3]);
-      const strokeWidth = toNumber(fields[4], 0.2);
-      svgParts.push(
-        `<rect x="${x}" y="${y}" width="${width}" height="${height}" stroke-width="${strokeWidth}" />`
+      const rect = parseFootprintRectangle(fields);
+      // A filled rectangle can have zero stroke width. Its interior carries
+      // the whole marking, or the pale body artwork on component layer 99.
+      const color = rect.layerId === 99 ? FOOTPRINT_PREVIEW_BODY : "#111827";
+      const fill = rect.fill === "none" ? "none" : color;
+      graphicsLayer(rect.layerId).push(
+        `<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" stroke-width="${rect.strokeWidth}" fill="${fill}" />`
       );
     }
   }
 
-  return buildSvgDocument(viewBox, svgParts.join("\n"), {
+  return buildSvgDocument(viewBox, [...body, ...pinArtwork, ...copper, ...markings, ...drills].join("\n"), {
     background: FOOTPRINT_PREVIEW_BACKGROUND
   });
 }
@@ -290,27 +317,9 @@ function find3dModelInfo(packageDetail) {
 }
 
 function getDatasheetInfo(cadData, lcscId) {
-  const rawUrl = [
-    cadData?.packageDetail?.dataStr?.head?.c_para?.link,
-    cadData?.dataStr?.head?.c_para?.link,
-    cadData?.lcsc?.url
-  ].find((value) => String(value || "").trim());
-  const url = normalizeUrl(rawUrl);
-  if (!url) {
-    return { url: "", filename: "" };
-  }
-
-  let extension = ".pdf";
-  try {
-    const pathname = new URL(url).pathname;
-    const lastSegment = pathname.split("/").pop() || "";
-    const match = lastSegment.match(/(\.[a-zA-Z0-9]{1,8})$/);
-    if (match) {
-      extension = match[1];
-    }
-  } catch (error) {
-    console.warn("Failed to parse datasheet URL:", error);
-  }
+  const url = findEasyedaDatasheetUrl(cadData);
+  if (!url) return { url: "", filename: "" };
+  const extension = url.pathname.match(/(\.[a-zA-Z0-9]{1,8})$/)?.[1] || ".pdf";
 
   const baseName = sanitizeFilenamePart(
     cadData?.packageDetail?.title ||
@@ -321,7 +330,7 @@ function getDatasheetInfo(cadData, lcscId) {
   );
 
   return {
-    url,
+    url: url.href,
     filename: `${baseName}-datasheet${extension}`
   };
 }
@@ -357,8 +366,7 @@ export {
   ensureEasyedaLcscId,
   fetchCadData,
   find3dModelInfo,
-  getDatasheetInfo,
-  makeBase64DataUrl
+  getDatasheetInfo
 };
 
 /*

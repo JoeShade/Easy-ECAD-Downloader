@@ -71,8 +71,24 @@ class MatrixTests(unittest.TestCase):
             self.apply({"set": {FINDINGS: "erase history"}})
 
     def test_backslash_at_cell_end_does_not_break_table(self):
-        self.apply({"append_finding": "Observed path ends with a slash \\"})
+        self.apply({"set": {"Case status": "PARTIAL"}, "append_finding": "Observed path ends with a slash \\"})
         self.assertEqual(len(Matrix.read(self.path).rows), 3)
+
+    def test_findings_and_resolved_urls_mark_a_case_as_started(self):
+        for patch in ({"append_finding": "Product navigation blocked."},
+                      {"set": {"Resolved product URL": "https://example.test/product"}}):
+            with self.subTest(patch=patch), self.assertRaisesRegex(ValueError, "NOT RUN"):
+                self.apply(patch)
+
+    def test_summary_keeps_inconsistent_legacy_verdict_open_for_reconciliation(self):
+        values = {key: "PASS" for key in CHECKS}
+        self.apply({"set": {**values, "Case status": "PASS"}})
+        self.path.write_bytes(self.path.read_bytes().replace(b"| PASS |", b"| FAIL |", 1))
+        counts = summary(Matrix.read(self.path))
+        self.assertIn("P001", counts["incomplete_ids"])
+        self.assertIn("must be FAIL", counts["invalid_rows"]["P001"])
+        self.assertEqual(counts["closed_rows"], 0)
+        self.assertEqual(counts["fully_inspected_rows"], 0)
 
     def test_stale_hash_is_rejected(self):
         stale = digest(self.path.read_bytes())

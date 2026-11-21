@@ -124,6 +124,36 @@ describe("EasyEDA symbol previews", () => {
     expect([...pixels.slice(center, center + 4)]).toEqual([248, 250, 252, 255]);
   });
 
+  it.each([
+    ["TPS62160DSGR pin 1", "E~362.5~277.5~1.5~1.5~#880000~1~0~#880000~gge2~0", 255],
+    ["SKRKAEE020 switch contact", "E~390~290~2.5~2.5~#880000~1~0~none~gge63~0", 0],
+    ["HR911105A winding dot", "E~220~-230~1~1~#880000~1~0~#880000~gge3284~0", 255],
+    ["circular junction", "C~30~40~2~#880000~1~0~#880000", 255],
+    ["unequal ellipse", "E~30~40~3~1~#880000~1~0~none", 0]
+  ])("draws the outline and source fill of the %s", (_part, record, centerAlpha) => {
+    const [, cx, cy, rx, ry] = record.split("~").map(Number);
+    const doc = preview([record], { x: cx - 10, y: cy - 10, width: 20, height: 20 });
+    const element = doc.querySelector("ellipse,circle");
+    expect(Number(element.getAttribute("cx"))).toBe(cx);
+    expect(Number(element.getAttribute("cy"))).toBe(cy);
+    if (element.tagName === "ellipse") expect(Number(element.getAttribute("ry"))).toBe(ry);
+    const pixels = raster(doc);
+    // The 30-unit square viewBox is centered at (61.5, 45) and scaled 3x.
+    const alphaAt = x => pixels[(45 * 123 + Math.floor(61.5 + x * 3)) * 4 + 3];
+    expect(alphaAt(0)).toBe(centerAlpha);
+    expect(alphaAt(rx)).toBeGreaterThan(150);
+  });
+
+  it("retains the light interiors of the Bourns wiper and AO3400A body diode", () => {
+    const doc = preview([
+      "PL~-2 10 -7 10~#880000~1~0~none~rep6~0",
+      "PG~0 10 -5 12 -5 8~#880000~1~0~#EFEFEF~rep7~0",
+      "PG~10 -2 7 3 13 3~#880000~1~0~#FEFEFE~gge38~0"
+    ]);
+    expect([...doc.querySelectorAll("polygon")].map(polygon => polygon.getAttribute("fill")))
+      .toEqual(["#f8fafc", "#f8fafc"]);
+  });
+
   it("isolates empty/malformed paths and escapes path attributes for PT, pins and arcs", () => {
     const malicious = 'M1 2"/><image href="https://example.test/x" onload="alert(1)"/><!--&';
     const doc = preview([
@@ -158,7 +188,7 @@ describe("EasyEDA symbol previews", () => {
       '<rect xmlns="http://www.w3.org/2000/svg" x="30" y="25" width="40" height="20" stroke-width="1"/>',
       '<polyline xmlns="http://www.w3.org/2000/svg" points="30,25 70,25 70,45" stroke-width="1" fill="none"/>',
       '<polygon xmlns="http://www.w3.org/2000/svg" points="30,25 50,15 70,25" stroke-width="1" fill="none"/>',
-      '<circle xmlns="http://www.w3.org/2000/svg" cx="50" cy="35" r="5" stroke-width="1"/>',
+      '<circle xmlns="http://www.w3.org/2000/svg" cx="50" cy="35" r="5" stroke-width="1" fill="none"/>',
       '<path xmlns="http://www.w3.org/2000/svg" d="M 30 35 A 5 5 0 0 1 40 45" stroke-width="1"/>'
     ]);
   });

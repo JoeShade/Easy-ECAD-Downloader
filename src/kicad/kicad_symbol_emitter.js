@@ -12,22 +12,37 @@ import {
   applyPinNameStyle,
   computeArc,
   escapeKiCadString,
-  getMiddleArcPos,
   indentLines,
   parseSvgPath,
-  pxToMm,
+  pointOnArc,
+  convertToMm as pxToMm,
   sanitizeFields,
-  toDegrees,
   toNumber
 } from "./shared.js";
 
+// EasyEDA can draw a pin stroke in either order. KiCad starts at the electrical
+// anchor and points toward the body, so measure to the farther stroke endpoint.
+function pinGeometry(pin) {
+  const segment = pin.pinPath.path.match(/([hv])\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*$/i);
+  if (!segment) return { length: 0, orientation: (180 + pin.settings.rotation) % 360 };
+  const command = segment[1];
+  const horizontal = command.toLowerCase() === "h";
+  const anchor = horizontal ? pin.settings.posX : pin.settings.posY;
+  const [move] = parseSvgPath(pin.pinPath.path);
+  const start = move?.type === "M" ? (horizontal ? move.startX : move.startY) : anchor;
+  const end = Number(segment[2]) + (command === command.toLowerCase() ? start : 0);
+  const body = Math.abs(start - anchor) > Math.abs(end - anchor) ? start : end;
+  const delta = body - anchor;
+  return {
+    length: pxToMm(Math.abs(delta)),
+    orientation: horizontal ? (delta < 0 ? 180 : 0) : (delta < 0 ? 90 : 270)
+  };
+}
+
 // Translate source positions to millimetres around the symbol origin. KiCad's
-// symbol Y axis points upward, so positions and arc sweep directions both flip.
+// symbol Y axis points upward, so evaluate SVG geometry before reflecting it.
 function convertSymbolToKiCad(symbol) {
   const pins = symbol.pins.map((pin) => {
-    const pinLengthRaw = String(pin.pinPath.path || "").split("h").pop();
-    const pinLength = Math.abs(toNumber(pinLengthRaw));
-
     const style = pin.dot.isDisplayed && pin.clock.isDisplayed
       ? "inverted_clock"
       : pin.dot.isDisplayed
@@ -42,9 +57,8 @@ function convertSymbolToKiCad(symbol) {
       name: pin.name.text.replace(/\s+/g, ""),
       number: String(pin.settings.number || "").replace(/\s+/g, ""),
       style,
-      length: pxToMm(pinLength),
       type,
-      orientation: (180 + pin.settings.rotation) % 360,
+      ...pinGeometry(pin),
       posX: pxToMm(toNumber(pin.settings.posX) - toNumber(symbol.bbox.x)),
       posY: -pxToMm(toNumber(pin.settings.posY) - toNumber(symbol.bbox.y))
     };
@@ -65,7 +79,8 @@ function convertSymbolToKiCad(symbol) {
     posX: pxToMm(circle.centerX - symbol.bbox.x),
     posY: -pxToMm(circle.centerY - symbol.bbox.y),
     radius: pxToMm(circle.radius),
-    background: circle.fillColor
+    strokeWidth: pxToMm(circle.strokeWidth),
+    fill: circle.fill
   }));
 
   const ellipses = symbol.ellipses
@@ -74,10 +89,13 @@ function convertSymbolToKiCad(symbol) {
       posX: pxToMm(ellipse.centerX - symbol.bbox.x),
       posY: -pxToMm(ellipse.centerY - symbol.bbox.y),
       radius: pxToMm(ellipse.radiusX),
-      background: false
+      strokeWidth: pxToMm(ellipse.strokeWidth),
+      fill: ellipse.fill
     }));
 
   const arcs = [];
+  const polygons = [];
+  const toSymbolPoint = (x, y) => [pxToMm(x - symbol.bbox.x), -pxToMm(y - symbol.bbox.y)];
   for (const arc of symbol.arcs) {
     if (arc.path.length < 2 || arc.path[0].type !== "M" || arc.path[1].type !== "A") {
       continue;
@@ -85,88 +103,68 @@ function convertSymbolToKiCad(symbol) {
     const move = arc.path[0];
     const ellipseArc = arc.path[1];
 
-    const startX = pxToMm(move.startX - symbol.bbox.x);
-    const startY = -pxToMm(move.startY - symbol.bbox.y);
-    const endX = pxToMm(ellipseArc.endX - symbol.bbox.x);
-    const endY = -pxToMm(ellipseArc.endY - symbol.bbox.y);
-    const arcInfo = computeArc(
-      startX,
-      startY,
-      pxToMm(ellipseArc.radiusX),
-      pxToMm(ellipseArc.radiusY),
+    const start = toSymbolPoint(move.startX, move.startY);
+    const end = toSymbolPoint(ellipseArc.endX, ellipseArc.endY);
+    if (start[0] === end[0] && start[1] === end[1]) continue;
+    if (!ellipseArc.radiusX || !ellipseArc.radiusY) {
+      polygons.push({ points: [start, end], fill: "none" });
+      continue;
+    }
+    const geometry = computeArc(
+      move.startX, move.startY,
+      ellipseArc.radiusX, ellipseArc.radiusY,
       ellipseArc.xAxisRotation,
       ellipseArc.flagLargeArc,
-      !ellipseArc.flagSweep,
-      endX,
-      endY
+      ellipseArc.flagSweep,
+      ellipseArc.endX, ellipseArc.endY
     );
-
-    // SVG expands undersized circular radii to connect the endpoints. The
-    // computed center therefore determines the effective radius of that circle.
-    // Unequal source radii retain the existing circular approximation.
-    const radius = Math.abs(ellipseArc.radiusX) === Math.abs(ellipseArc.radiusY)
-      ? Math.hypot(startX - arcInfo.cx, startY - arcInfo.cy)
-      : pxToMm(Math.max(ellipseArc.radiusX, ellipseArc.radiusY));
-    const startAngle = toDegrees(Math.atan2(startY - arcInfo.cy, startX - arcInfo.cx));
-    // computeArc returns the legacy footprint angle sign. Reverse it here to
-    // sample the symbol's middle point on the SVG-selected side of the circle.
-    const endAngle = startAngle - arcInfo.angleExtent;
-    const middle = getMiddleArcPos(
-      arcInfo.cx,
-      arcInfo.cy,
-      radius,
-      startAngle,
-      endAngle
-    );
-
-    arcs.push({
-      startX,
-      startY,
-      middleX: middle.middleX,
-      middleY: middle.middleY,
-      endX,
-      endY,
-      fill: arc.fillColor
-    });
-  }
-
-  function convertPolyline(polyline, closeIfFilled) {
-    // Filled shapes repeat their first point to close the outline. Open shapes
-    // are closed only when both coordinates of the endpoints already match.
-    const rawPts = String(polyline.points || "").trim().split(/\s+/);
-    const xPoints = [];
-    const yPoints = [];
-    for (let i = 0; i < rawPts.length; i += 2) {
-      xPoints.push(pxToMm(toNumber(rawPts[i]) - symbol.bbox.x));
-      yPoints.push(-pxToMm(toNumber(rawPts[i + 1]) - symbol.bbox.y));
-    }
-    if (closeIfFilled) {
-      xPoints.push(xPoints[0]);
-      yPoints.push(yPoints[0]);
-    }
-    if (!xPoints.length || !yPoints.length) {
-      return null;
-    }
-    return {
-      points: xPoints.map((x, idx) => [x, yPoints[idx]]),
-      isClosed: xPoints[0] === xPoints[xPoints.length - 1] &&
-        yPoints[0] === yPoints[yPoints.length - 1]
+    const pointAt = fraction => {
+      const point = pointOnArc(geometry, fraction);
+      return toSymbolPoint(point.x, point.y);
     };
+    if (geometry.radiusX !== geometry.radiusY || arc.fill !== "none") {
+      // KiCad symbol arcs are circular. Sample an ellipse to within 0.01 mm
+      // chord error; a painted arc uses one closed outline for its whole fill.
+      const radius = pxToMm(Math.max(geometry.radiusX, geometry.radiusY));
+      const step = Math.min(Math.PI / 8, 2 * Math.acos(Math.max(0, 1 - 0.01 / radius)));
+      const count = Math.min(4096, Math.max(2, Math.ceil(Math.abs(geometry.sweepAngle) / step)));
+      const points = [start];
+      for (let i = 1; i < count; i++) points.push(pointAt(i / count));
+      points.push(end);
+      if (arc.fill !== "none") points.push(start);
+      polygons.push({ points, fill: arc.fill });
+    } else {
+      // KiCad 10 plots a symbol arc as its minor sweep. Splitting major arcs
+      // preserves nearly complete loops and both sides of a winding.
+      const count = Math.ceil(Math.abs(geometry.sweepAngle) / Math.PI);
+      let from = start;
+      for (let i = 0; i < count; i++) {
+        const middle = pointAt((i + 0.5) / count);
+        const to = i + 1 === count ? end : pointAt((i + 1) / count);
+        arcs.push({ startX: from[0], startY: from[1], middleX: middle[0], middleY: middle[1], endX: to[0], endY: to[1] });
+        from = to;
+      }
+    }
   }
 
-  const polygons = [];
-  for (const polyline of symbol.polylines) {
-    const poly = convertPolyline(polyline, polyline.fillColor);
-    if (poly) {
-      polygons.push(poly);
-    }
+  function appendPolyline(points, fill, close) {
+    if (points.length < 2) return;
+    const first = points[0];
+    const last = points.at(-1);
+    if (close && (first[0] !== last[0] || first[1] !== last[1])) points.push(first);
+    polygons.push({ points, fill });
   }
-  for (const polygon of symbol.polygons) {
-    const poly = convertPolyline(polygon, true);
-    if (poly) {
-      polygons.push(poly);
+
+  function convertPolyline(polyline, close) {
+    const raw = String(polyline.points || "").trim().split(/\s+/);
+    const points = [];
+    for (let i = 0; i + 1 < raw.length; i += 2) {
+      points.push(toSymbolPoint(toNumber(raw[i]), toNumber(raw[i + 1])));
     }
+    appendPolyline(points, polyline.fill, close);
   }
+  for (const line of symbol.polylines) convertPolyline(line, line.fill !== "none");
+  for (const polygon of symbol.polygons) convertPolyline(polygon, true);
 
   for (const path of symbol.paths) {
     // Reuse command parsing so absolute M/L coordinates work with spaces,
@@ -176,10 +174,7 @@ function convertSymbolToKiCad(symbol) {
     // Each M starts a separate outline. Flush it before the next move so
     // disconnected source graphics retain their independent boundaries.
     function appendSubpath() {
-      if (points.length < 2) return;
-      const [firstX, firstY] = points[0];
-      const [lastX, lastY] = points[points.length - 1];
-      polygons.push({ points, isClosed: firstX === lastX && firstY === lastY });
+      appendPolyline(points, path.fill, path.fill !== "none");
     }
     for (const step of parseSvgPath(path.paths)) {
       if (step.type === "M" || step.type === "L") {
@@ -189,7 +184,7 @@ function convertSymbolToKiCad(symbol) {
         }
         const x = step.type === "M" ? step.startX : step.posX;
         const y = step.type === "M" ? step.startY : step.posY;
-        points.push([pxToMm(x - symbol.bbox.x), -pxToMm(y - symbol.bbox.y)]);
+        points.push(toSymbolPoint(x, y));
       } else if (step.type === "Z" && points.length) {
         points.push(points[0]);
       }
@@ -242,8 +237,8 @@ function exportSymbolCircle(circle) {
   return `(circle
   (center ${circle.posX.toFixed(2)} ${circle.posY.toFixed(2)})
   (radius ${circle.radius.toFixed(2)})
-  (stroke (width ${KI_SYMBOL_CONFIG.defaultLineWidth}) (type default) (color 0 0 0 0))
-  (fill (type ${circle.background ? "background" : "none"}))
+  (stroke (width ${circle.strokeWidth.toFixed(3)}) (type default) (color 0 0 0 0))
+  (fill (type ${circle.fill}))
 )`;
 }
 
@@ -253,7 +248,7 @@ function exportSymbolArc(arc) {
   (mid ${arc.middleX.toFixed(2)} ${arc.middleY.toFixed(2)})
   (end ${arc.endX.toFixed(2)} ${arc.endY.toFixed(2)})
   (stroke (width ${KI_SYMBOL_CONFIG.defaultLineWidth}) (type default) (color 0 0 0 0))
-  (fill (type ${arc.fill ? "background" : "none"}))
+  (fill (type none))
 )`;
 }
 
@@ -265,7 +260,7 @@ ${poly.points
   .join("\n")}
   )
   (stroke (width ${KI_SYMBOL_CONFIG.defaultLineWidth}) (type default) (color 0 0 0 0))
-  (fill (type ${poly.isClosed ? "background" : "none"}))
+  (fill (type ${poly.fill}))
 )`;
 }
 

@@ -4,7 +4,31 @@
  * output layer can stay focused on KiCad text generation.
  */
 
-import { parseSvgPath, toBool, toNumber } from "./shared.js";
+import { parseSvgPath, symbolFillType, toBool, toNumber } from "./shared.js";
+
+// EasyEDA can put a catalogue listing in any of its three document fields.
+// The symbol and download use the same first usable link. Recognize product
+// pages by host and route so HTML manuals and extensionless viewers still work.
+function findEasyedaDatasheetUrl(cadData) {
+  const candidates = [
+    cadData?.packageDetail?.dataStr?.head?.c_para?.link,
+    cadData?.dataStr?.head?.c_para?.link,
+    cadData?.lcsc?.url
+  ];
+  for (const value of candidates) {
+    const raw = String(value || "").trim();
+    if (!raw) continue;
+    let url;
+    try { url = new URL(raw.startsWith("//") ? "https:" + raw : raw); }
+    catch { continue; }
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password) continue;
+    const host = url.hostname.toLowerCase();
+    if (host === "item.szlcsc.com" && /^\/\d+\.html\/?$/i.test(url.pathname)) continue;
+    if (/^(www\.)?lcsc\.com$/.test(host) && /^\/product-detail\/[^/]+\.html\/?$/i.test(url.pathname)) continue;
+    return url;
+  }
+  return null;
+}
 
 // EasyEDA separates fields with '~' and groups pin sub-records with '^^'. Keep
 // these positional wire-format details here; emitters receive named fields and
@@ -23,7 +47,7 @@ function parseEasyedaSymbol(cadData) {
       prefix: String(info.pre || "").replace("?", ""),
       package: info.package || "",
       manufacturer: info.BOM_Manufacturer || "",
-      datasheet: lcsc.url || "",
+      datasheet: findEasyedaDatasheetUrl(cadData)?.href || "",
       lcscId: lcsc.number || "",
       jlcId: info["BOM_JLCPCB Part Class"] || ""
     },
@@ -63,7 +87,7 @@ function parseEasyedaSymbol(cadData) {
           isLocked: toBool(settingsFields[7])
         },
         pinPath: {
-          path: String(pinPathFields[0] || "").replace(/v/g, "h"),
+          path: pinPathFields[0] || "",
           color: pinPathFields[1] || ""
         },
         name: {
@@ -100,18 +124,19 @@ function parseEasyedaSymbol(cadData) {
       const fields = line.split("~").slice(1);
       symbol.polylines.push({
         points: fields[0],
-        fillColor: String(fields[4] || "").toLowerCase() !== "none"
+        fill: symbolFillType(fields[4])
       });
     } else if (designator === "PG") {
       const fields = line.split("~").slice(1);
       symbol.polygons.push({
         points: fields[0],
-        fillColor: true
+        fill: symbolFillType(fields[4])
       });
     } else if (designator === "PT") {
       const fields = line.split("~").slice(1);
       symbol.paths.push({
-        paths: fields[0]
+        paths: fields[0],
+        fill: symbolFillType(fields[4])
       });
     } else if (designator === "C") {
       const fields = line.split("~").slice(1);
@@ -119,7 +144,8 @@ function parseEasyedaSymbol(cadData) {
         centerX: toNumber(fields[0]),
         centerY: toNumber(fields[1]),
         radius: toNumber(fields[2]),
-        fillColor: String(fields[5] || "").toLowerCase() !== "none"
+        strokeWidth: toNumber(fields[4]),
+        fill: symbolFillType(fields[6] ?? fields[5])
       });
     } else if (designator === "E") {
       const fields = line.split("~").slice(1);
@@ -127,13 +153,16 @@ function parseEasyedaSymbol(cadData) {
         centerX: toNumber(fields[0]),
         centerY: toNumber(fields[1]),
         radiusX: toNumber(fields[2]),
-        radiusY: toNumber(fields[3])
+        radiusY: toNumber(fields[3]),
+        strokeWidth: toNumber(fields[5]),
+        fill: symbolFillType(fields[7])
       });
     } else if (designator === "A") {
       const fields = line.split("~").slice(1);
       symbol.arcs.push({
         path: parseSvgPath(fields[0]),
-        fillColor: String(fields[4] || "").toLowerCase() !== "none"
+        // A records include an SVG helper path between the geometry and stroke.
+        fill: symbolFillType(fields[5] ?? fields[4])
       });
     }
   }
@@ -141,7 +170,7 @@ function parseEasyedaSymbol(cadData) {
   return symbol;
 }
 
-export { parseEasyedaSymbol };
+export { findEasyedaDatasheetUrl, parseEasyedaSymbol };
 
 /*
 ######################################################################################################################

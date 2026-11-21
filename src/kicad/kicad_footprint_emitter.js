@@ -14,29 +14,146 @@ import {
   computeArc,
   convertToMm,
   escapeKiCadString,
-  fpToKi,
+  padDrillSize,
   parseSvgPath,
+  pointOnArc,
   quoteKiCadAtom,
   toNumber
 } from "./shared.js";
 
+// Silkscreen, assembly and documentation regions describe printed graphics.
+// Copper, clearance, board-edge and component-model regions have separate PCB semantics.
+const MARKING_LAYERS = new Set([3, 4, 12, 13, 14, 15]);
+
+// Both region outlines and elliptical strokes use straight KiCad segments.
+// Limit the chord error on the longer axis to 0.01 mm for marking-sized curves.
+function arcInterior(arc) {
+  const radius = convertToMm(Math.max(arc.radiusX, arc.radiusY));
+  const maxAngle = 2 * Math.acos(Math.max(-1, 1 - 0.01 / radius));
+  const count = Math.min(1024, Math.max(2, Math.ceil(Math.abs(arc.sweepAngle) / maxAngle)));
+  const interior = [];
+  for (let i = 1; i < count; i++) {
+    const point = pointOnArc(arc, i / count);
+    interior.push([point.x, point.y]);
+  }
+  return interior;
+}
+
+// SVG omits a coincident endpoint and joins distinct endpoints with a straight
+// line when either radius is zero. Both cases need only the source endpoints.
+function arcGeometry(start, step) {
+  if (!step.radiusX || !step.radiusY || (start[0] === step.endX && start[1] === step.endY)) return null;
+  return computeArc(start[0], start[1], step.radiusX, step.radiusY,
+    step.xAxisRotation, step.flagLargeArc, step.flagSweep, step.endX, step.endY);
+}
+
+function regionPolygon(region, bbox) {
+  if (region.type !== "solid" || !MARKING_LAYERS.has(region.layerId)) return "";
+  const path = region.path.replace(/z/g, "Z");
+  // A compound path can encode holes. A single KiCad polygon can represent
+  // one contour; accepting only supported contours keeps those holes open.
+  if (/[^MLAZ\deE.+,\s-]/.test(path) || /Z\s*\S/.test(path) || path.includes("M", 1)) return "";
+  const [start, ...steps] = parseSvgPath(path);
+  if (start?.type !== "M") return "";
+  const coordinates = [[start.startX, start.startY]];
+  for (const step of steps) {
+    if (step.type === "L") {
+      coordinates.push([step.posX, step.posY]);
+    } else if (step.type === "A") {
+      const arc = arcGeometry(coordinates.at(-1), step);
+      if (arc) coordinates.push(...arcInterior(arc));
+      coordinates.push([step.endX, step.endY]);
+    }
+  }
+
+  const points = [];
+  for (const [px, py] of coordinates) {
+    const xy = `(xy ${(convertToMm(px) - bbox.x).toFixed(4)} ${(convertToMm(py) - bbox.y).toFixed(4)})`;
+    if (xy !== points.at(-1)) points.push(xy);
+  }
+  if (points.at(-1) === points[0]) points.pop();
+  if (points.length < 3) return "";
+  return `\t(fp_poly (pts ${points.join(" ")}) (layer ${KI_LAYERS[region.layerId]}) (width 0) (fill solid))\n`;
+}
+
+// Track and custom-pad records store alternating x/y values in drawing units.
+// Reject incomplete geometry before writing a displaced trace or an unbuildable land.
+function footprintPoints(text, minimumPoints, record, originX, originY) {
+  const coordinates = text.trim().split(/\s+/).map(Number);
+  if (coordinates.length < minimumPoints * 2 || coordinates.length % 2 || !coordinates.every(Number.isFinite)) {
+    throw new Error(`Invalid ${record} coordinates: expected at least ${minimumPoints} complete x/y pairs`);
+  }
+  const points = [];
+  for (let i = 0; i < coordinates.length; i += 2) {
+    points.push([convertToMm(coordinates[i]) - originX, convertToMm(coordinates[i + 1]) - originY]);
+  }
+  return points;
+}
+
+// Every KiCad line is specified by two footprint-local points in millimetres.
+function footprintLine(start, end, layerId, strokeWidth) {
+  return KI_FOOTPRINT_TEMPLATES.line
+    .replace("{startX}", start[0].toFixed(2))
+    .replace("{startY}", start[1].toFixed(2))
+    .replace("{endX}", end[0].toFixed(2))
+    .replace("{endY}", end[1].toFixed(2))
+    .replace("{layers}", KI_LAYERS[layerId] || "F.Fab")
+    .replace("{strokeWidth}", Math.max(strokeWidth, 0.01).toFixed(2));
+}
+
+// Legacy KiCad arcs run from the source endpoint back around the circle.
+// Ellipses use connected lines because a circular KiCad arc has only one radius.
+function footprintArc(record, bbox) {
+  const [move, ...steps] = parseSvgPath(record.path);
+  if (move?.type !== "M" || steps[0]?.type !== "A") {
+    throw new Error("Unsupported footprint arc path: expected absolute M and A commands");
+  }
+  const local = ([x, y]) => [convertToMm(x) - bbox.x, convertToMm(y) - bbox.y];
+  const width = convertToMm(record.strokeWidth);
+  let subpath = [move.startX, move.startY];
+  let start = subpath;
+  let output = "";
+  for (const step of steps) {
+    if (step.type === "M") {
+      subpath = [step.startX, step.startY];
+      start = subpath;
+      continue;
+    }
+    let end = subpath;
+    if (step.type === "L") end = [step.posX, step.posY];
+    if (step.type === "A") end = [step.endX, step.endY];
+    if (start[0] === end[0] && start[1] === end[1]) continue;
+    const arc = step.type === "A" ? arcGeometry(start, step) : null;
+    if (arc && arc.radiusX === arc.radiusY) {
+      const [centerX, centerY] = local([arc.cx, arc.cy]);
+      const [endX, endY] = local(end);
+      output += KI_FOOTPRINT_TEMPLATES.arc
+        .replace("{startX}", centerX.toFixed(2))
+        .replace("{startY}", centerY.toFixed(2))
+        .replace("{endX}", endX.toFixed(2))
+        .replace("{endY}", endY.toFixed(2))
+        .replace("{angle}", arc.angleExtent.toFixed(2))
+        .replace("{layers}", KI_LAYERS[record.layerId] || "F.Fab")
+        .replace("{strokeWidth}", Math.max(width, 0.01).toFixed(2));
+    } else {
+      const points = [start, ...(arc ? arcInterior(arc) : []), end].map(local);
+      for (let i = 1; i < points.length; i++) {
+        output += footprintLine(points[i - 1], points[i], record.layerId, width);
+      }
+    }
+    start = end;
+  }
+  return output;
+}
+
 // A nonzero holeLength denotes a slot. Its longer dimension follows the pad's
 // longer local axis, and KiCad's oval drill lists local X then local Y size.
 function drillToKi(holeRadius, holeLength, padHeight, padWidth) {
-  if (holeRadius > 0 && holeLength && holeLength !== 0) {
-    const maxDistanceHole = Math.max(holeRadius * 2, holeLength);
-    const pos0 = padHeight - maxDistanceHole;
-    const pos90 = padWidth - maxDistanceHole;
-    const maxDistance = Math.max(pos0, pos90);
-    if (maxDistance === pos0) {
-      return `(drill oval ${(holeRadius * 2).toFixed(2)} ${holeLength.toFixed(2)})`;
-    }
-    return `(drill oval ${holeLength.toFixed(2)} ${(holeRadius * 2).toFixed(2)})`;
-  }
-  if (holeRadius > 0) {
-    return `(drill ${(2 * holeRadius).toFixed(2)})`;
-  }
-  return "";
+  const size = padDrillSize(holeRadius, holeLength, padHeight, padWidth);
+  if (!size) return "";
+  return holeLength > 0
+    ? `(drill oval ${size.width.toFixed(2)} ${size.height.toFixed(2)})`
+    : `(drill ${size.width.toFixed(2)})`;
 }
 
 // Convert named scalar lengths once. Raw point/path records retain source units
@@ -123,6 +240,7 @@ function convertFootprintToKiCad(footprint) {
     circles,
     arcs: footprint.arcs,
     rectangles,
+    solidRegions: footprint.solidRegions,
     texts,
     model3d
   };
@@ -161,16 +279,14 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
     .replace("{packageName}", () => quoteKiCadAtom(kiFootprint.info.name));
   output += KI_FOOTPRINT_TEMPLATES.fabRef;
 
+  for (const region of kiFootprint.solidRegions) {
+    output += regionPolygon(region, kiFootprint.bbox);
+  }
+
   for (const track of kiFootprint.tracks) {
-    const points = String(track.points || "").trim().split(/\s+/).map(fpToKi);
-    for (let i = 0; i < points.length - 2; i += 2) {
-      output += KI_FOOTPRINT_TEMPLATES.line
-        .replace("{startX}", (points[i] - kiFootprint.bbox.x).toFixed(2))
-        .replace("{startY}", (points[i + 1] - kiFootprint.bbox.y).toFixed(2))
-        .replace("{endX}", (points[i + 2] - kiFootprint.bbox.x).toFixed(2))
-        .replace("{endY}", (points[i + 3] - kiFootprint.bbox.y).toFixed(2))
-        .replace("{layers}", KI_LAYERS[track.layerId] || "F.Fab")
-        .replace("{strokeWidth}", Math.max(track.strokeWidth, 0.01).toFixed(2));
+    const points = footprintPoints(track.points, 2, "TRACK", kiFootprint.bbox.x, kiFootprint.bbox.y);
+    for (let i = 1; i < points.length; i++) {
+      output += footprintLine(points[i - 1], points[i], track.layerId, track.strokeWidth);
     }
   }
 
@@ -179,25 +295,21 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
     const startY = rect.y - kiFootprint.bbox.y;
     const width = rect.width;
     const height = rect.height;
-    const points = [
-      [startX, startY, startX + width, startY],
-      [startX + width, startY, startX + width, startY + height],
-      [startX + width, startY + height, startX, startY + height],
-      [startX, startY + height, startX, startY]
-    ];
-    for (const [sx, sy, ex, ey] of points) {
-      output += KI_FOOTPRINT_TEMPLATES.line
-        .replace("{startX}", sx.toFixed(2))
-        .replace("{startY}", sy.toFixed(2))
-        .replace("{endX}", ex.toFixed(2))
-        .replace("{endY}", ey.toFixed(2))
-        .replace("{layers}", KI_LAYERS[rect.layerId] || "F.Fab")
-        .replace("{strokeWidth}", Math.max(rect.strokeWidth, 0.01).toFixed(2));
+    if (rect.fill !== "none" && MARKING_LAYERS.has(rect.layerId)) {
+      output += `\t(fp_rect (start ${startX.toFixed(2)} ${startY.toFixed(2)})` +
+        ` (end ${(startX + width).toFixed(2)} ${(startY + height).toFixed(2)})` +
+        ` (layer ${KI_LAYERS[rect.layerId]}) (width ${rect.strokeWidth.toFixed(2)}) (fill solid))\n`;
+      continue;
+    }
+    const corners = [[startX, startY], [startX + width, startY], [startX + width, startY + height],
+      [startX, startY + height], [startX, startY]];
+    for (let i = 1; i < corners.length; i++) {
+      output += footprintLine(corners[i - 1], corners[i], rect.layerId, rect.strokeWidth);
     }
   }
 
   for (const pad of kiFootprint.pads) {
-    let shape = KI_PAD_SHAPE[pad.shape] || "custom";
+    const shape = KI_PAD_SHAPE[pad.shape] || "custom";
     let width = Math.max(pad.width, 0.01);
     let height = Math.max(pad.height, 0.01);
     let orientation = angleToKi(pad.rotation);
@@ -206,22 +318,15 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
     if (shape === "custom") {
       // EasyEDA polygon pad points are absolute drawing coordinates. KiCad pad
       // primitives are local to their pad anchor, with the rotation already in the points.
-      const points = pad.points.trim().split(/\s+/).map(fpToKi);
-      if (points.length) {
-        width = 0.005;
-        height = 0.005;
-        orientation = 0;
-        const path = [];
-        for (let i = 0; i < points.length; i += 2) {
-          const x = (points[i] - kiFootprint.bbox.x) - (pad.centerX - kiFootprint.bbox.x);
-          const y = (points[i + 1] - kiFootprint.bbox.y) - (pad.centerY - kiFootprint.bbox.y);
-          path.push(`(xy ${x.toFixed(2)} ${y.toFixed(2)})`);
-        }
-        polygon =
-          "\n\t\t(primitives \n\t\t\t(gr_poly \n\t\t\t\t(pts " +
-          path.join(" ") +
-          "\n\t\t\t\t) \n\t\t\t\t(width 0.1) \n\t\t\t)\n\t\t)\n\t";
-      }
+      const points = footprintPoints(pad.points, 3, "custom pad", pad.centerX, pad.centerY);
+      width = 0.005;
+      height = 0.005;
+      orientation = 0;
+      const path = points.map(([x, y]) => `(xy ${x.toFixed(2)} ${y.toFixed(2)})`);
+      polygon =
+        "\n\t\t(primitives \n\t\t\t(gr_poly \n\t\t\t\t(pts " +
+        path.join(" ") +
+        "\n\t\t\t\t) \n\t\t\t\t(width 0.1) \n\t\t\t)\n\t\t)\n\t";
     }
 
     const layers =
@@ -249,7 +354,7 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
       .replace("{shape}", shape)
       .replace("{posX}", (pad.centerX - kiFootprint.bbox.x).toFixed(2))
       .replace("{posY}", (pad.centerY - kiFootprint.bbox.y).toFixed(2))
-      .replace("{orientation}", orientation === "" ? "" : orientation.toFixed(2))
+      .replace("{orientation}", orientation.toFixed(2))
       .replace("{width}", width.toFixed(2))
       .replace("{height}", height.toFixed(2))
       .replace("{layers}", layers)
@@ -287,46 +392,7 @@ function exportKiCadFootprint(kiFootprint, model3dPath) {
   }
 
   for (const arc of kiFootprint.arcs) {
-    // EasyEDA describes an SVG endpoint arc. Legacy KiCad footprints instead
-    // store its center, final endpoint, and the signed angle around that center.
-    const [move, ellipseArc] = parseSvgPath(arc.path);
-    if (move?.type !== "M" || ellipseArc?.type !== "A") {
-      throw new Error("Unsupported footprint arc path: expected absolute M and A commands");
-    }
-    const startX = fpToKi(move.startX) - kiFootprint.bbox.x;
-    const startY = fpToKi(move.startY) - kiFootprint.bbox.y;
-    const radiusX = fpToKi(ellipseArc.radiusX);
-    const radiusY = fpToKi(ellipseArc.radiusY);
-    const endX = fpToKi(ellipseArc.endX) - kiFootprint.bbox.x;
-    const endY = fpToKi(ellipseArc.endY) - kiFootprint.bbox.y;
-    let extent = 0;
-    let cx = 0;
-    let cy = 0;
-    if (radiusY !== 0) {
-      const arcInfo = computeArc(
-        startX,
-        startY,
-        radiusX,
-        radiusY,
-        ellipseArc.xAxisRotation,
-        ellipseArc.flagLargeArc,
-        ellipseArc.flagSweep,
-        endX,
-        endY
-      );
-      cx = arcInfo.cx;
-      cy = arcInfo.cy;
-      extent = arcInfo.angleExtent;
-    }
-
-    output += KI_FOOTPRINT_TEMPLATES.arc
-      .replace("{startX}", cx.toFixed(2))
-      .replace("{startY}", cy.toFixed(2))
-      .replace("{endX}", endX.toFixed(2))
-      .replace("{endY}", endY.toFixed(2))
-      .replace("{angle}", extent.toFixed(2))
-      .replace("{layers}", KI_LAYERS[arc.layerId] || "F.Fab")
-      .replace("{strokeWidth}", Math.max(fpToKi(arc.strokeWidth), 0.01).toFixed(2));
+    output += footprintArc(arc, kiFootprint.bbox);
   }
 
   for (const text of kiFootprint.texts) {

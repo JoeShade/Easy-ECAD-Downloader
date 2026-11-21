@@ -42,7 +42,7 @@ This repository is a compact browser extension that detects supported distributo
 - Run `npm run lint` for JavaScript source or test changes.
 - The browser/KiCad QA harness, matrix campaigns and `qa:*` checks are optional developer tools, not commit or pull-request requirements. For harness work, developers can run `npm run qa:lint` and `npm run qa:smoke` after installing the pinned requirements in `tests/headless-qa/README.md`. Live QA runs require an explicit request.
 - Run targeted tests while iterating.
-- For packaging changes, run `npm run package:test` and `npm run package` with Python 3.10+.
+- For packaging changes, use the pinned Ruff and package-test/build commands in `contributing.md`. The CI packaging job runs all three on Python 3.10.
 - Run `npm run validate` before finalizing when Node/npm are available.
 
 ## Using `systemDesign.md`
@@ -53,7 +53,7 @@ This repository is a compact browser extension that detects supported distributo
 
 ## Documentation expectations
 
-- Treat the root `README.md` as a fixed asset. Any edit, including content, formatting, links or automated rewrites, requires the user's explicit permission to change that file.
+- Treat the root `README.md` as read-only. Do not modify, delete, rename, regenerate, or reformat it unless the user explicitly requests or authorizes that specific change.
 - General requests for code review, maintenance, fixes or documentation updates do not grant permission to edit `README.md`. Record relevant changes in the other governing documents and flag proposed README updates for explicit approval.
 - Keep `docs/architecture-notes.md` short and implementation-focused.
 - Use `docs/deviations.md` only for live temporary mismatches between code and design.

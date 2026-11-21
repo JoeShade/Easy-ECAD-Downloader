@@ -1,7 +1,7 @@
 /*
  * These tests cover repository-level governance rules. They inspect tracked
- * docs, manifest shape, source footers, and reviewer explainers so convention
- * drift is caught mechanically rather than by memory.
+ * docs, manifest shape, source footers, and reviewer explainers so changes to
+ * repository conventions receive an automated check.
  */
 
 import fs from "node:fs";
@@ -269,7 +269,7 @@ function hasTopLevelExplainer(text, relativePath = "file.js") {
 function isMaintainedCodeFile(relativePath) {
   if (relativePath.startsWith("tests/fixtures/")) return false;
   return /^(src|tests|scripts)\/.*\.(?:[cm]?js|py|ps1|html|css)$/.test(relativePath) ||
-    /^\.agents\/skills\/[^/]+\/scripts\/.*\.(?:[cm]?js|py|ps1)$/.test(relativePath) ||
+    /^\.agents\/skills\/[^/]+\/(?:scripts\/.*\.(?:[cm]?js|py|ps1)|agents\/openai\.yaml)$/.test(relativePath) ||
     /^\.github\/workflows\/.*\.ya?ml$/.test(relativePath) ||
     [".puppeteerrc.cjs", "eslint.config.js", "vitest.config.js"].includes(relativePath);
 }
@@ -296,7 +296,8 @@ describe("repository hygiene", () => {
     expect(ignoredPaths).toEqual(localPaths);
   });
 
-  it.each([".github/workflows/release.yml", ".agents/skills/example/scripts/check.py", "tests/helper.mjs"])(
+  it.each([".github/workflows/release.yml", ".agents/skills/example/scripts/check.py",
+    ".agents/skills/example/agents/openai.yaml", "tests/helper.mjs"])(
     "includes maintained support code in explainer coverage: %s", relativePath => {
       expect(isMaintainedCodeFile(relativePath)).toBe(true);
     }

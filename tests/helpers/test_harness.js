@@ -1,16 +1,11 @@
 /*
- * Shared test harness utilities for reading repository files, importing fresh
- * modules, and executing source files inside controlled VM contexts. These
- * helpers keep browser globals mocked consistently across implementation tests.
+ * Shared test utilities read repository files and import fresh copies of
+ * browser modules after each test installs its own browser globals.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import vm from "node:vm";
-
-const FALLBACK_ATOB = (value) => Buffer.from(value, "base64").toString("binary");
-const FALLBACK_BTOA = (value) => Buffer.from(value, "binary").toString("base64");
 
 export const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..");
 
@@ -26,56 +21,6 @@ export async function importRepoModule(relativePath) {
   const moduleUrl = pathToFileURL(path.join(REPO_ROOT, relativePath));
   moduleUrl.searchParams.set("t", String(moduleImportNonce++));
   return import(moduleUrl.href);
-}
-
-// Execute classic-script source with explicit browser substitutes. Tests supply
-// text transforms for module syntax and append exports inside the same VM scope.
-export function runSourceFile(
-  relativePath,
-  { context = {}, transforms = [], append = "" } = {}
-) {
-  let source = readRepoFile(relativePath);
-  for (const transform of transforms) {
-    source = transform(source);
-  }
-  if (append) {
-    source = `${source}\n${append}\n`;
-  }
-
-  const script = new vm.Script(source, { filename: relativePath });
-  const vmContext = vm.createContext({
-    console,
-    setTimeout,
-    clearTimeout,
-    setInterval,
-    clearInterval,
-    Promise,
-    Map,
-    WeakMap,
-    ArrayBuffer,
-    Uint8Array,
-    URL,
-    Blob,
-    TextEncoder,
-    TextDecoder,
-    atob: globalThis.atob || FALLBACK_ATOB,
-    btoa: globalThis.btoa || FALLBACK_BTOA,
-    encodeURIComponent,
-    decodeURIComponent,
-    unescape: globalThis.unescape,
-    ...context
-  });
-
-  script.runInContext(vmContext);
-  return vmContext;
-}
-
-export function replaceExactImport(source, fromText, toText) {
-  return source.replace(fromText, toText);
-}
-
-export function stripEsmFunctionExports(source) {
-  return source.replace(/^export function /gm, "function ");
 }
 
 export function normalizeNewlines(text) {
