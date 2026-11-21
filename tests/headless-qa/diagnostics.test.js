@@ -36,6 +36,17 @@ function sessionFixture(info, emitStartup = false) {
 }
 
 describe("diagnostic lifecycle", () => {
+  it("counts runtime failures that arrive after the detail limit", async () => {
+    const collector = diagnosticCollector(await runFixture(), 1);
+    collector.record({ severity: "warning", source: { role: "page" } });
+    collector.record({ severity: "error", source: { role: "extension-worker" },
+      finding: { outcome: "FAIL", cause: "unknown" } });
+    await collector.flush();
+    expect(collector.records).toHaveLength(1);
+    expect(collector.summary()).toMatchObject({ count: 1, dropped: 1, warnings: 1, errors: 1,
+      unknownFailures: 1, contexts: ["page", "extension-worker"] });
+  });
+
   it("observes an existing target once when auto-attachment already covered it", async () => {
     const run = await runFixture(), info = { targetId: "existing", type: "page", url: "about:blank" };
     const root = sessionFixture({}), automatic = sessionFixture(info, true), manual = sessionFixture(info, true);
@@ -66,6 +77,22 @@ describe("diagnostic lifecycle", () => {
     manual.emit("Runtime.exceptionThrown", { exceptionDetails: { text: "Product runtime error" } });
     await diagnostics.close();
     expect(diagnostics.records[0].source).toMatchObject({ targetId: "existing", url: "https://example.test/part" });
+  });
+
+  it("reports incomplete runtime capture after a target resumes and detaches", async () => {
+    const run = await runFixture(), info = { targetId: "worker", type: "service_worker", url: "about:blank" };
+    const root = sessionFixture({}), manual = sessionFixture(info), failure = new Error("Runtime unavailable");
+    manual.send.mockImplementation(async method => {
+      if (method === "Target.getTargetInfo") return { targetInfo: info };
+      if (method === "Runtime.enable") throw failure;
+    });
+    const browser = { target: () => ({ createCDPSession: async () => root }), targets: () => [{
+      type: () => info.type, createCDPSession: async () => manual
+    }] };
+    const collector = await attachDiagnostics(browser, run);
+    await expect(collector.close()).rejects.toBe(failure);
+    expect(manual.send).toHaveBeenCalledWith("Runtime.runIfWaitingForDebugger");
+    expect(manual.detach).toHaveBeenCalledOnce();
   });
 
   it("persists later records while surfacing an earlier logging failure at flush", async () => {

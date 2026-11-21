@@ -55,8 +55,10 @@ export function identifierChecks(context, reference, popup = null, website = "")
     const expected = candidates.length === 1 ? candidates[0] : null;
     const available = !unavailable && Boolean(expected);
     const matches = normalizeIdentifier(actual, kind) === normalizeIdentifier(expected, kind);
-    checks.push({ name, outcome: available ? matches ? "PASS" : "FAIL" : "REVIEW",
-      establishes: available ? "Named identifier comparison agrees" : unavailable || "Independent reference missing or conflicting",
+    const outcome = available ? matches ? "PASS" : "FAIL" : "REVIEW";
+    const establishes = { PASS: "Observed identifier matches the reference", FAIL: "Observed identifier differs from the reference",
+      REVIEW: unavailable || "Independent reference missing or conflicting" }[outcome];
+    checks.push({ name, outcome, establishes,
       actual: actual || null, expected, candidates, category: "extension-observation", cause: "unknown" });
   };
   compare("detected.mpn.page", context?.manufacturerPartNumber, refs.mpn);

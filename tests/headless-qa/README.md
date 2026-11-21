@@ -271,8 +271,9 @@ CDP Runtime/Log listeners are installed before extension loading and navigation,
 including Chrome's `other` action-popup target type. Uncaught exceptions and
 console warnings/errors stream to `execution.log` and atomically saved
 `browser/diagnostics.json`. Records include timestamps, context, source URL,
-stage and bounded messages. Capture is capped at 200 records with a dropped count;
-listeners and CDP sessions are removed during cleanup. Retries retain their first
+stage and bounded messages. The harness retains details for the first 200 records
+and counts errors, warnings and unknown failures across every observation. It records
+how many details it dropped. Cleanup releases sessions and reports failed runtime attachment as BLOCKED. Retries retain their first
 failure and final execution result. Generic fetch/network/preview/export errors
 remain observations with **unknown cause**. Only explicit access evidence, such
 as an authentication requirement or an HTTP access status, establishes an external
@@ -322,10 +323,10 @@ Cubic curves use their conservative control-point hull. Margin is at least 2 mm
 or 15% of the footprint span. Native-compatible zero-radius point arcs are retained
 and recorded in `geometryObservations`; they are not repaired. Other malformed or
 nonfinite geometry, unsupported graphic types/custom pad primitives, and unexpected
-root placement are rejected explicitly. Original files are hashed before/after
-rendering, including failed exits. Model paths and
-placements are never corrected to make a render work. The native text fixture
-generator is tested without requiring `pcbnew` bindings.
+root placement are rejected explicitly. Hashing checks for links and Windows reparse points before reading originals, which are verified after
+rendering, including failed exits. Fixture boards preserve original model paths and placements.
+The harness resolves the KiCad project directory (`KIPRJMOD`) and records other KiCad path
+variables as unresolved. Those assemblies remain blocked in browser runs and standalone rendering.
 
 `pcb render` requests 1200 x 900 top, isometric and side views; image checks record
 the actual PNG dimensions returned by the installed KiCad build. KiCad 10.0.1's
@@ -414,7 +415,7 @@ retains a top-level failure finding and a nonzero exit. Exit codes are 0 for
 PASS/REVIEW-only results, 1 for FAIL, and 2 for BLOCKED-only results in the underlying
 runner; npm on Windows may normalize a nonzero script exit to 1.
 
-**Schema 2:** `downloads.events` retains every browser event and its destination,
+**Schema 2:** Verified assets record the export category. The grouped datasheet path and basename identify documents with any provider suffix. `downloads.events` retains every browser event and its destination,
 state/times/bytes/error/disposition. `downloads.assets` replaces the earlier
 event-based `downloads.files` inventory with one record per final file. Metadata
 and results are redacted structurally. Renderer `models` inventories every model;
@@ -436,14 +437,12 @@ visual inspection pending. `liveWorkflowEvidenceProduced` requires complete stag
 execution, selected assets, decoded previews, produced inspections and no failed/
 blocked checks or runtime errors. It does not assert geometry appearance or visual
 correctness. `liveEndToEndDemonstrated` stays false while review remains outstanding.
-Offline fixtures
-and synthetic runtime probes are not live provider validation.
+Offline fixtures and synthetic probes validate the local harness.
 
 New renderer reports identify `browser-run-render` (a supplied browser accounting
 inventory) versus `standalone-render` and record the input directory. Standalone
 input-file eligibility does not establish browser download completion or provenance.
 
-Successful decoding or a nonblank-image heuristic is never a claim of component
-correctness. Pin mapping, dimensions and model alignment require inspection.
+Pin mapping, dimensions and model alignment require visual inspection.
 Browser QA is local opt-in validation; `npm test` and `npm run validate` exclude
 the harness tests. Use `npm run qa:smoke` explicitly for its offline JS/Python checks.

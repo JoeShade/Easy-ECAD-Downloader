@@ -205,11 +205,19 @@ def summary(matrix: Matrix) -> dict[str, Any]:
     Reviewers supply inspection evidence; these totals describe recorded cells.
     """
     rows = [row for _, row in matrix.rows.values()]
-    incomplete = [row["ID"] for row in rows if row["Case status"] in {"NOT RUN", "PARTIAL"}
-                  or any(row[key] in UNRUN for key in CHECKS)]
+    incomplete, invalid = [], {}
+    # Hand-edited or older rows can have a final label that conflicts with the
+    # observed checks. Reuse the update rules to keep such rows open on resume.
+    for row in rows:
+        try:
+            validate_outcomes(row)
+        except ValueError as error:
+            invalid[row["ID"]] = str(error)
+        if row["ID"] in invalid or row["Case status"] in {"NOT RUN", "PARTIAL"}:
+            incomplete.append(row["ID"])
     return {
         "case_count": len(rows), "case_status_counts": dict(Counter(row["Case status"] for row in rows)),
-        "incomplete_ids": incomplete,
+        "incomplete_ids": incomplete, "invalid_rows": invalid,
         "closed_rows": len(rows) - len(incomplete),
         "cases_with_failures": [row["ID"] for row in rows if any(row[key] == "FAIL" for key in CHECKS)],
         "cases_with_blockers": [row["ID"] for row in rows if any(row[key] == "BLOCKED" for key in CHECKS)],
@@ -233,7 +241,7 @@ def validate_outcomes(row: dict[str, str]) -> None:
     if state not in STATES:
         raise ValueError("Invalid Case status")
     checks = [row[key] for key in CHECKS]
-    if state == "NOT RUN" and any(value not in UNRUN for value in checks):
+    if state == "NOT RUN" and any(row[key] not in UNRUN for key in ("Resolved product URL", *CHECKS, FINDINGS)):
         raise ValueError("An observed case cannot be NOT RUN")
     if state not in {"PARTIAL", "NOT RUN"}:
         if any(value in UNRUN for value in checks):

@@ -11,7 +11,7 @@ function completedRun() {
   stages.previews.checks = ["symbolPreview", "footprintPreview"].map(id => ({ id, decoded: true, outcome: "PASS" }));
   stages.downloads.selected = ["downloadSymbol"];
   stages.downloads.assets = [{ filename: "part.kicad_sym", relativePath: "part.kicad_sym", verified: true }];
-  return { kind: "live", execution: "COMPLETED", stages };
+  return { kind: "live", execution: "COMPLETED", diagnostics: { errors: 0 }, stages };
 }
 
 describe("live workflow coverage", () => {
@@ -24,10 +24,44 @@ describe("live workflow coverage", () => {
     });
   });
 
+  it.each(["htm", "docx", "step", "pdf"])("classifies the grouped .%s datasheet independently of CAD files", extension => {
+    const result = completedRun(), downloads = result.stages.downloads;
+    downloads.selected = ["downloadSymbol", "downloadFootprint", "downloadModel", "downloadDatasheet"];
+    downloads.settings = { downloadIndividually: false, libraryDownloadRoot: "parts/export" };
+    const filename = `P001-datasheet.${extension}`;
+    downloads.assets = [{ filename, relativePath: `parts/export/datasheets/${filename}`, verified: true }];
+    const coverage = coverageSummary(result);
+    expect(coverage.produced.assetCategories).toEqual(["downloadDatasheet"]);
+    expect(coverage.expected.inspections).toBe(0);
+    downloads.assets[0].verified = false;
+    expect(coverageSummary(result).produced.assetCategories).toEqual([]);
+  });
+
+  it("keeps legacy PDF and HTML records and actual model-directory matches", () => {
+    const result = completedRun(), downloads = result.stages.downloads;
+    downloads.selected = ["downloadModel", "downloadDatasheet"];
+    for (const filename of ["document.pdf", "document.html"]) {
+      downloads.assets = [{ filename, relativePath: filename, verified: true }];
+      expect(coverageSummary(result).produced.assetCategories).toEqual(["downloadDatasheet"]);
+    }
+    downloads.settings = { downloadIndividually: false, libraryDownloadRoot: "parts" };
+    downloads.assets = [{ filename: "part-datasheet.step", relativePath: "parts/parts.3dshapes/part-datasheet.step", verified: true }];
+    expect(coverageSummary(result).produced.assetCategories).toEqual(["downloadModel"]);
+  });
+
   it.each(["RUNNING", "FAILED", "NOT_RUN"])("withholds workflow evidence for overall %s execution", execution => {
     const result = completedRun();
     result.execution = execution;
     expect(coverageSummary(result, rendered).liveWorkflowEvidenceProduced).toBe(false);
+  });
+
+  it("requires selected downloads and a recorded zero runtime error count", () => {
+    const noSelection = completedRun();
+    noSelection.stages.downloads.selected = [];
+    expect(coverageSummary(noSelection, rendered).liveWorkflowEvidenceProduced).toBe(false);
+    for (const diagnostics of [undefined, {}, { errors: 1 }]) {
+      expect(coverageSummary({ ...completedRun(), diagnostics }, rendered).liveWorkflowEvidenceProduced).toBe(false);
+    }
   });
 });
 

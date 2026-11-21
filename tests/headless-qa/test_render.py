@@ -75,6 +75,25 @@ class FixtureTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'schema 2'):
                 verified_download_paths(report, root)
 
+    def test_unresolved_project_setting_keeps_native_assembly_outstanding(self):
+        from unittest.mock import patch
+        from render import render_assets
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'downloads'
+            source.mkdir()
+            original = SAMPLE.read_text().replace('../fixture.3dshapes/qa_block.wrl',
+                                                  '${KICAD10_3DMODEL_DIR}/qa_block.wrl')
+            (source / SAMPLE.name).write_text(original)
+            evidence = Evidence(root / 'renders', 1)
+            with patch('render.calibrate', return_value=True), \
+                    patch.object(evidence, 'command', return_value={'exitCode': 1}), \
+                    patch('render.assembly_views', return_value={}) as assembly:
+                render_assets(evidence, 'fake-cli', source, root / 'inspection')
+            assembly.assert_not_called()
+            self.assertTrue(any(check['outcome'] == 'BLOCKED' and 'project setting' in check['establishes']
+                                for check in evidence.data['checks']))
+
     def test_malformed_symbol_entry_retains_other_planned_library_inspections(self):
         from render import plan_inspections
         with tempfile.TemporaryDirectory() as temporary:
@@ -87,6 +106,29 @@ class FixtureTests(unittest.TestCase):
             plan_inspections(evidence, source)
             self.assertEqual([item['id'] for item in evidence.data['coverage']['inspections']],
                              ['symbol-0.unparsed', 'symbol-1.0'])
+
+    def test_browser_plan_keeps_a_verified_datasheet_out_of_model_inspection(self):
+        import json
+        from unittest.mock import patch
+        from render import main
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, output = root / 'downloads', root / 'renders'
+            source.mkdir()
+            (source / 'manual-datasheet.step').write_text('document')
+            (source / 'body.step').write_text('model')
+            assets = [{'verified': True, 'relativePath': name, 'size': (source / name).stat().st_size,
+                       'sha256': digest, 'exportCategory': 'downloadModel' if name == 'body.step' else 'downloadDatasheet'}
+                      for name, digest in hashes(source).items()]
+            inventory = root / 'inventory.json'
+            inventory.write_text(json.dumps({'schemaVersion': 2, 'stages': {'downloads': {'assets': assets}}}))
+            # Preflight alone preserves the real inspection plan for this browser inventory.
+            with patch('sys.argv', ['render.py', '--preflight', '--input', str(source), '--output', str(output),
+                                    '--inventory', str(inventory)]), patch('render.Evidence.preflight'), patch('builtins.print'):
+                self.assertEqual(main(), 0)
+            report = json.loads((output / 'render-result.json').read_text())
+            self.assertEqual([model['relativePath'] for model in report['models']], ['body.step'])
+            self.assertEqual(set(report['inputHashes']), {'body.step', 'manual-datasheet.step'})
 
     def test_malformed_model_reference_retains_coverage_and_cannot_write_fixture(self):
         from render import plan_inspections
@@ -132,6 +174,40 @@ class FixtureTests(unittest.TestCase):
             calibration.assert_not_called()
             self.assertEqual(evidence.data['inputHashes'], before)
             self.assertFalse((root / 'inspection/assets').exists())
+
+    def test_hash_walk_checks_entry_type_before_reading_contents(self):
+        import stat
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            member = root / 'sample.step'
+            member.write_text('local QA fixture')
+            lstat = Path.lstat
+            # Supply link metadata for a regular fixture through the file-status boundary.
+            def metadata(path):
+                return SimpleNamespace(st_mode=stat.S_IFLNK) if path == member else lstat(path)
+            with patch.object(Path, 'lstat', metadata), patch.object(Path, 'read_bytes', return_value=b'') as read:
+                with self.assertRaisesRegex(ValueError, 'link'):
+                    hashes(root)
+                read.assert_not_called()
+
+    def test_renderer_retains_final_evidence_when_originals_become_unreadable(self):
+        import json
+        from unittest.mock import patch
+        from render import main
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, output = root / 'downloads', root / 'renders'
+            source.mkdir()
+            with patch('sys.argv', ['render.py', '--input', str(source), '--output', str(output)]), \
+                    patch('render.hashes', side_effect=[{}, OSError('Read interrupted')]), \
+                    patch('render.Evidence.preflight', return_value='fake-cli'), \
+                    patch('render.render_assets'), patch('builtins.print'):
+                self.assertEqual(main(), 2)
+            result = json.loads((output / 'render-result.json').read_text())
+            self.assertTrue(result['finishedAt'])
+            self.assertEqual(result['checks'][-1]['outcome'], 'BLOCKED')
 
     def test_nonfinite_timeouts_are_rejected_before_creating_evidence(self):
         from unittest.mock import patch
@@ -450,13 +526,23 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual([value[1] for value in children(node, "symbol")], ["one", "two"])
 
     def test_reports_missing_models_without_rewriting(self):
+        from unittest.mock import patch
         with tempfile.TemporaryDirectory() as temporary:
             node = parse_sexpr(SAMPLE.read_text())
             record = model_files(node, Path(temporary))[0]
             self.assertFalse(record["exists"])
             self.assertEqual(record["transforms"], children(node, "model")[0][2:])
             variable = parse_sexpr('(footprint "x" (model "${KIPRJMOD}/missing.step"))')
-            self.assertEqual(model_files(variable, Path(temporary))[0]["resolved"], str((Path(temporary)/"missing.step").resolve()))
+            # The QA project directory supplies this KiCad variable directly.
+            with patch('os.path.expandvars', side_effect=lambda value: value) as system_expansion:
+                project_model = model_files(variable, Path(temporary))[0]
+                system_expansion.assert_not_called()
+            self.assertEqual(project_model["resolved"], str((Path(temporary)/"missing.step").resolve()))
+            variable = parse_sexpr('(footprint "x" (model "${KICAD10_3DMODEL_DIR}/part.step"))')
+            library_model = model_files(variable, Path(temporary))[0]
+            self.assertTrue(library_model["unresolvedVariable"])
+            self.assertIsNone(library_model["resolved"])
+            self.assertFalse(library_model["exists"])
 
     def test_preserves_nonidentity_transforms_and_legacy_module(self):
         with tempfile.TemporaryDirectory() as temporary:

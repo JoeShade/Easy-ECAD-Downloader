@@ -53,10 +53,17 @@ export function diagnosticRecord(source, method, event) {
 // Serialize writes so each atomic replacement contains all accepted records.
 // Retain the first write failure for flush while later observations keep saving.
 export function diagnosticCollector(run, limit = 200) {
-  const records = [];
+  const records = [], contexts = new Set();
+  let errors = 0, warnings = 0, unknownFailures = 0;
   let dropped = 0, pending = Promise.resolve(), persistenceError = null;
   const record = value => {
     if (!value) return;
+    // A busy page may fill the detail budget before an extension failure arrives.
+    // Count every observation so coverage uses the whole run.
+    contexts.add(value.source.role || value.source.type);
+    if (value.severity === "error") errors++;
+    if (value.severity === "warning") warnings++;
+    if (value.finding?.outcome === "FAIL" && value.finding.cause === "unknown") unknownFailures++;
     if (records.length >= limit) { dropped++; return; }
     records.push(value);
     pending = pending.then(async () => {
@@ -69,10 +76,7 @@ export function diagnosticCollector(run, limit = 200) {
     await atomicJson(path.join(run.dir, "browser/diagnostics.json"), { records, dropped, limit });
     if (persistenceError) throw persistenceError;
   }, summary() { return { evidence: "browser/diagnostics.json", count: records.length, dropped, limit,
-    errors: records.filter(record => record.severity === "error").length,
-    warnings: records.filter(record => record.severity === "warning").length,
-    unknownFailures: records.filter(record => record.finding?.outcome === "FAIL" && record.finding?.cause === "unknown").length,
-    contexts: [...new Set(records.map(record => record.source.role || record.source.type))] }; } };
+    errors, warnings, unknownFailures, contexts: [...contexts] }; } };
 }
 
 // Pause new targets until their listeners are ready. Existing-target attachment
@@ -106,6 +110,8 @@ export async function attachDiagnostics(browser, run) {
       await session.send("Runtime.enable");
       await session.send("Log.enable").catch(() => {}); // Enable Log on targets that expose the domain.
     } catch (error) {
+      // Finish observing the other targets, then surface this gap at cleanup.
+      attachmentError ||= error;
       await run.log("diagnostic-attachment-limitation", { source: source(), message: error.message });
     } finally { await session.send("Runtime.runIfWaitingForDebugger").catch(() => {}); }
   };

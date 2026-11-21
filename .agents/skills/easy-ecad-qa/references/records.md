@@ -11,7 +11,7 @@ Only `Resolved product URL`, the eight check columns, `Case status` and `Finding
 | Matrix result | Evidence and required interpretation |
 | --- | --- |
 | Source # detection | Page reference versus detected source code and popup value. |
-| Manufacturer/MPN detection | Supported exact MPN/manufacturer comparisons; missing unimplemented manufacturer-name display is not a defect. |
+| Manufacturer/MPN detection | Compare the complete MPN and the manufacturer identity where displayed. Accept clear manufacturer-name variants as described in [inspection.md](inspection.md). |
 | Symbol preview / Footprint preview | Actual visual examination of local generation/display, with source-content ownership kept separate. |
 | Download | Normal export, final files and explicit availability/warnings. |
 | KiCad symbol | Exported entries/units inspected for local transfer/format integrity, not datasheet electrical correctness. |
@@ -30,7 +30,7 @@ Use `—` for unattempted work. All eight checks are mandatory to account for; o
 
 Use `PARTIAL` while any check or one permitted retest still needs work. When no work remains within the procedure, final `Case status` follows: `FAIL` if any check failed; otherwise `REVIEW` if any is uncertain; otherwise `BLOCKED` if any is blocked; otherwise `PASS` (all checks PASS/N/A). `NOT RUN` is only for untouched rows.
 
-A final `FAIL` can include blocked checks: that row is closed but not fully inspected. A final `REVIEW` is closed pending manual judgment, not an instruction to investigate indefinitely. A row labelled `FAIL` with blank checks is incomplete and must not be skipped when resuming this campaign.
+A final `FAIL` can include blocked checks: that row is closed but not fully inspected. A final `REVIEW` is closed pending manual judgment, not an instruction to investigate indefinitely. The helper keeps inconsistent rows open and reports each reason in `invalid_rows`. This includes final verdicts with blank checks or a conflicting outcome and rows still labelled `NOT RUN` after recording a finding or resolved URL.
 
 Report three separate quantities: work disposition (closed/partial/unstarted), cases with confirmed extension-owned failures, and outstanding blocked/manual-review coverage. Never sum overlapping failure and review counts as though they were disjoint completion totals. A fully inspected case has no blank, BLOCKED or REVIEW check; it may still contain an observed FAIL.
 

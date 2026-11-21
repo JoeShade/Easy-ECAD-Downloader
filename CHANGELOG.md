@@ -12,6 +12,7 @@ Notable changes are recorded here in reverse chronological order.
 - Fixed valid STEP models losing selection to empty OBJ conversions, and completed model downloads losing their references after a slow browser status query.
 - Fixed distributor misidentification across site boundaries. EasyEDA catalogue links could also produce an unrelated product page as a datasheet. Previews, downloads and symbol properties now skip those links and use the next eligible document.
 - Fixed settings changes taking effect midway through a provider request. A failed settings rollback now requires a reload, and direct SamacSys responses are checked against the approved hosts before use.
+- Fixed QA results overlooking late runtime errors, unresolved model references and inconsistent matrix verdicts.
 - Fixed missing pin markers and switch contacts in symbol previews by drawing ellipses with their source radii and stroke widths.
 - Fixed hollow dots and arrowheads in KiCad exports and unwanted solid fills in symbol previews by distinguishing foreground, background and unfilled shapes.
 - Fixed windings that curved the wrong way and loops that broke in KiCad by following each elliptical arc’s source sweep and splitting circular arcs longer than 180 degrees into shorter arcs.

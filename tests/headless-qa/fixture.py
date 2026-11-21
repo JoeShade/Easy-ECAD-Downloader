@@ -5,7 +5,6 @@ CLI execution and evidence; unsupported geometry raises a fixture capability lim
 """
 import json
 import math
-import os
 import re
 from pathlib import Path
 
@@ -264,12 +263,13 @@ def model_files(node, board_dir):
             raise ValueError("Malformed footprint model reference")
         original = model[1]
         expanded = original.replace("${KIPRJMOD}", str(board_dir)).replace("$(KIPRJMOD)", str(board_dir))
-        expanded = os.path.expandvars(expanded)
+        # The fixture supplies KIPRJMOD. Other KiCad variables belong to the
+        # user's project settings, so their literal references stay in evidence.
         unresolved = bool(re.search(r'\$[({]', expanded))
         target = Path(expanded.replace("\\", "/"))
         if not target.is_absolute():
             target = board_dir / target
-        records.append({"reference": original, "resolved": str(target.resolve()),
+        records.append({"reference": original, "resolved": None if unresolved else str(target.resolve()),
                         "exists": not unresolved and target.is_file(), "unresolvedVariable": unresolved,
                         "transforms": model[2:]})
     return records

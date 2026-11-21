@@ -12,6 +12,8 @@ An ordinary visual check can PASS if it was performed and no scoped problem is o
 
 Compare the qualified catalogue ID and exact MPN with both the returned context and actual popup. Preserve meaningful suffixes, punctuation and leading zeros. Follow documented conflict handling rather than demanding an arbitrary ID. Compare manufacturer names only when the interface/context actually supplies them. The absence of an unimplemented manufacturer-name display is not a defect. `Mfr. Part #` means MPN; JLCPCB's documented source label is `LCSC part`.
 
+Apply the same manufacturer-identity rule to the page, detector and popup. An obvious short name or presentation variant can satisfy the manufacturer check even when the harness flags the literal strings. Record the observed forms and retain the raw comparison. A conflicting manufacturer or a different MPN still needs its own assessment.
+
 Inspect both previews for correct association, local clipping, display distortion, omitted local graphics and unreadable rendering. EasyEDA creates previews locally; use identity/version-matched source or local converted-output evidence for a demonstrated inconsistency. SamacSys supplies PNG previews: wrong drawing content in that PNG is not a local display defect, and disagreement with a separately authored upstream KiCad symbol is not sufficient attribution.
 
 No tests of generic popup positioning, repeated open/close mechanics, unrelated settings or toolbar behaviour are added.

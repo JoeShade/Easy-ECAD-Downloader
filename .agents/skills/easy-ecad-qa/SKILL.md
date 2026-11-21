@@ -17,7 +17,7 @@ Evidence-only review is not permission to run live tests. Installation or readin
 
 ## Boundaries
 
-- Preserve the selected cases, exact manufacturers/MPNs, sites, provider routes and order. Honour an explicit range; otherwise work in row order. No substitute components or new exploratory categories.
+- Preserve the selected cases, manufacturer identities, ordering codes, sites, provider routes and order. Honour an explicit range; otherwise work in row order. No substitute components or new exploratory categories.
 - Use the current local checkout on Windows 11, its unpacked extension in Chrome for Testing, and KiCad 10 CLI. Record actual versions/commit/dirty state. Never pull, switch branches or silently merge results from different builds.
 - Use the documented credential-console launcher for user entry before a new full matrix. No other Computer Use, interactive KiCad, desktop automation, normal Chrome profile or replacement downloader/renderer.
 - No product/harness/dependency changes, CAD repairs, code tracing, root-cause investigation, proposed fixes, commits, PRs or GitHub issues. Small read-only evidence operations and guarded table updates are permitted.
@@ -47,6 +47,8 @@ Do not routinely verify pinouts, solder lands, package dimensions, electrical ty
 ### Qualify and acquire
 
 Read the whole row. Qualify its product/search starting URL against the exact fixed identity before recording any resolved URL. A Search seed permits navigation only to the exact preselected listing. Missing/ambiguous listings or access refusals are coverage BLOCKED, not software defects.
+
+Accept an obvious abbreviation, shortened name or presentation variant when the product page clearly identifies the selected manufacturer. For example, a page listing Murata Electronics qualifies for a row specifying Murata. Listed manufacturer equivalences are examples, and other clear variants qualify without prior listing. Retain the page spelling in evidence. If the manufacturer identity is ambiguous, leave qualification unresolved. Match the complete MPN, including its ordering suffix, subject only to recorded case-specific MPN exceptions.
 
 Set PARTIAL and save the checkpoint. Run the existing `qa:run` using the exact URL and a fresh case/attempt ID. Use only documented flags and authorised credentials. Include `--samacsys-login` for every SamacSys row after the startup gate succeeds; EasyEDA rows may stay unauthenticated. The real action popup and Download path are mandatory. General popup open/close/position testing is not added.
 
