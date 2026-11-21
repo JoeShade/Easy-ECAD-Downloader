@@ -411,6 +411,14 @@ f 1 2 3
     expect(wrl).toContain("Shape{");
   });
 
+  it("preserves indented material colors and falls back for incomplete RGB triples", () => {
+    const mesh = "  newmtl body\n\tKd\t0.1  0.2  0.3 # coating\n  Ks 0.8 0.9\n  endmtl\n" +
+      "v 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl body\nf 1 2 3";
+    const wrl = convertObjToWrlString(mesh);
+    expect(wrl).toContain("diffuseColor 0.1 0.2 0.3\n");
+    expect(wrl).toContain("specularColor 0 0 0\n");
+  });
+
   it("writes each referenced OBJ point once and supplies missing-material colors", () => {
     const wrl = convertObjToWrlString("v 0 0 0\nv 2.54 0 0\nv 0 2.54 0\nusemtl body\nf 1 2 3");
     const points = wrl.match(/point \[\s*([\s\S]*?)\s*\]/)[1].split(", ");
@@ -424,6 +432,12 @@ f 1 2 3
     expect(wrl).toContain("diffuseColor 0.8 0.8 0.8");
     expect(wrl).toContain("specularColor 0 0 0");
   });
+
+  it.each(["", "v 0 0 0", "v 0 0 0\nv 1 1 1\nf 1 2"])(
+    "rejects OBJ responses without a renderable face", mesh => {
+      expect(() => convertObjToWrlString(mesh)).toThrow(/face/i);
+    }
+  );
 
   it("exports default-material OBJ faces and signed indices relative to each face", () => {
     // The fourth vertex follows the first face, so its negative indices refer
