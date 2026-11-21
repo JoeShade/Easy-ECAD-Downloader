@@ -43,22 +43,22 @@ const TEXT_FILE_EXTENSIONS = new Set([
 const TEXT_FILE_NAMES = new Set([".gitignore", "AGENTS.md", "LICENSE"]);
 
 const HIGH_CONFIDENCE_SECRET_PATTERNS = [
-  { label: "private key block", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, grepTerm: "PRIVATE KEY" },
-  { label: "AWS access key id", pattern: /AKIA[0-9A-Z]{16}/, grepTerm: "AKIA" },
-  { label: "AWS temporary access key id", pattern: /ASIA[0-9A-Z]{16}/, grepTerm: "ASIA" },
-  { label: "GitLab token", pattern: /glpat-[A-Za-z0-9_-]{20,}/, grepTerm: "glpat-" },
-  { label: "GitHub token", pattern: /gh[pousr]_[A-Za-z0-9_]{36,}/, grepTerm: ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"] },
-  { label: "GitHub fine-grained token", pattern: /github_pat_[A-Za-z0-9_]{22,}/, grepTerm: "github_pat_" },
-  { label: "Google API key", pattern: /AIza[0-9A-Za-z_-]{35}/, grepTerm: "AIza" },
-  { label: "OpenAI project or service token", pattern: /sk-(?:proj|svcacct)-[A-Za-z0-9_-]{20,}/, grepTerm: "sk-" },
-  { label: "OpenAI legacy token", pattern: /sk-[A-Za-z0-9]{32,}/, grepTerm: "sk-" },
-  { label: "Anthropic API token", pattern: /sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{40,}/, grepTerm: "sk-ant-api" },
-  { label: "Stripe live secret key", pattern: /(?:sk|rk)_live_[A-Za-z0-9]{24,}/, grepTerm: "_live_" },
-  { label: "Slack token", pattern: /xox[baprs]-[A-Za-z0-9-]{20,}/, grepTerm: "xox" },
-  { label: "Slack webhook URL", pattern: /hooks\.slack\.com\/services\/[A-Za-z0-9_-]{8,}\/[A-Za-z0-9_-]{8,}\/[A-Za-z0-9_-]{20,}/, grepTerm: "hooks.slack.com/services/" },
-  { label: "npm token", pattern: /npm_[A-Za-z0-9]{36}/, grepTerm: "npm_" },
-  { label: "SendGrid API token", pattern: /SG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/, grepTerm: "SG." },
-  { label: "JWT bearer token", pattern: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/, grepTerm: "eyJ" }
+  { label: "private key block", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
+  { label: "AWS access key id", pattern: /AKIA[0-9A-Z]{16}/ },
+  { label: "AWS temporary access key id", pattern: /ASIA[0-9A-Z]{16}/ },
+  { label: "GitLab token", pattern: /glpat-[A-Za-z0-9_-]{20,}/ },
+  { label: "GitHub token", pattern: /gh[pousr]_[A-Za-z0-9_]{36,}/ },
+  { label: "GitHub fine-grained token", pattern: /github_pat_[A-Za-z0-9_]{22,}/ },
+  { label: "Google API key", pattern: /AIza[0-9A-Za-z_-]{35}/ },
+  { label: "OpenAI project or service token", pattern: /sk-(?:proj|svcacct)-[A-Za-z0-9_-]{20,}/ },
+  { label: "OpenAI legacy token", pattern: /sk-[A-Za-z0-9]{32,}/ },
+  { label: "Anthropic API token", pattern: /sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{40,}/ },
+  { label: "Stripe live secret key", pattern: /(?:sk|rk)_live_[A-Za-z0-9]{24,}/ },
+  { label: "Slack token", pattern: /xox[baprs]-[A-Za-z0-9-]{20,}/ },
+  { label: "Slack webhook URL", pattern: /hooks\.slack\.com\/services\/[A-Za-z0-9_-]{8,}\/[A-Za-z0-9_-]{8,}\/[A-Za-z0-9_-]{20,}/ },
+  { label: "npm token", pattern: /npm_[A-Za-z0-9]{36}/ },
+  { label: "SendGrid API token", pattern: /SG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/ },
+  { label: "JWT bearer token", pattern: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/ }
 ];
 
 const EMAIL_ADDRESS_PATTERN = /\b[A-Z0-9._%+-]+@(?:[A-Z0-9-]+\.)+[A-Z]{2,}\b/gi;
@@ -88,15 +88,6 @@ export function artifactFindingsForPath(relativePath) {
   );
 
   return match ? [`${relativePath} (${match.label})`] : [];
-}
-
-export function securityGrepTerms() {
-  return [
-    ...new Set([
-      ...HIGH_CONFIDENCE_SECRET_PATTERNS.flatMap(({ grepTerm }) => grepTerm),
-      "Basic "
-    ])
-  ];
 }
 
 export function highConfidenceSecretFindings(relativePath, text) {
