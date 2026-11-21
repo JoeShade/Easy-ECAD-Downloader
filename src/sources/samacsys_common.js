@@ -516,19 +516,6 @@ async function extractSamacsysKiCadAssets(zipBuffer, readZipEntriesImpl = readZi
   };
 }
 
-function rewriteSamacsysSymbolFootprintReference(symbolLibraryText, footprintName, libraryName) {
-  if (!footprintName || !libraryName) {
-    return symbolLibraryText;
-  }
-  const reference = `${libraryName}:${footprintName}`.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  // A callback keeps dollar signs literal while the escaped value stays one
-  // KiCad string token inside the existing property block.
-  return String(symbolLibraryText).replace(
-    /(\(property "Footprint" ")((?:\\.|[^"\\])*)(")/,
-    (_match, prefix, _oldReference, suffix) => `${prefix}${reference}${suffix}`
-  );
-}
-
 function rewriteSamacsysFootprintModelPath(footprintText, modelFilename, libraryName) {
   if (!modelFilename || !libraryName) {
     return footprintText;
@@ -601,7 +588,6 @@ export {
   getSamacsysAuthenticationErrorMessage,
   parseSamacsysPageMetadata,
   rewriteSamacsysFootprintModelPath,
-  rewriteSamacsysSymbolFootprintReference,
   stripKicadFootprintModels
 };
 

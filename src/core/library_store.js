@@ -49,6 +49,16 @@ function extractSymbolBlock(kicadLibraryText) {
   return readSymbolBlocks(kicadLibraryText, 1).map(block => block.text).join("\n") || null;
 }
 
+// KiCad resolves a footprint by library nickname and the .kicad_mod basename.
+// Upstream and generated properties use different whitespace. Preserve it and
+// escape the replacement as KiCad string data, including literal dollar signs.
+function rewriteSymbolFootprintReference(symbolText, footprintName, libraryName) {
+  if (!footprintName || !libraryName) return symbolText;
+  const reference = `${libraryName}:${footprintName}`.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return symbolText.replace(/(\(property\s+"Footprint"\s+")((?:\\.|[^"\\])*)(")/,
+    (_match, prefix, _oldReference, suffix) => prefix + reference + suffix);
+}
+
 // The stored library is the append authority. Compare each incoming root ID to
 // existing root IDs; a bundle may contain both an existing and a new symbol.
 function mergeSymbolIntoLibrary(existingLibrary, symbolBlock) {
@@ -102,6 +112,7 @@ async function saveStoredSymbolLibrary(chromeApi, key, content) {
 
 export {
   extractSymbolBlock,
+  rewriteSymbolFootprintReference,
   mergeSymbolIntoLibrary,
   loadStoredSymbolLibrary,
   saveStoredSymbolLibrary

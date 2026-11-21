@@ -24,7 +24,6 @@ import {
   fetchSamacsysPageMetadata,
   fetchSamacsysZipArchive,
   rewriteSamacsysFootprintModelPath,
-  rewriteSamacsysSymbolFootprintReference,
   stripKicadFootprintModels
 } from "./samacsys_common.js";
 import { isFirefoxRuntime } from "../core/part_context.js";
@@ -115,19 +114,12 @@ function createSamacsysDistributorAdapter(deps) {
 
       if (resolvedOptions.symbol) {
         for (const symbol of assets.symbols) {
-          const rewrittenSymbol = exportContext.settings.downloadIndividually
-            ? symbol.content
-            : rewriteSamacsysSymbolFootprintReference(
-                symbol.content,
-                primaryFootprintName,
-                libraryName
-              );
-
           downloadCount += await writeSymbolArtifact({
             chromeApi,
             downloads,
             exportContext,
-            symbolContent: rewrittenSymbol,
+            symbolContent: symbol.content,
+            footprintName: primaryFootprintName,
             individualFilename: symbol.filename
           });
         }

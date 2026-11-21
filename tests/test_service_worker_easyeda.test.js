@@ -68,6 +68,27 @@ describe("service worker EasyEDA flow", () => {
     expect(getDatasheetInfo(cad, "C12345")).toEqual({ url: "", filename: "" });
   });
 
+  it.each([true, false])("links the grouped symbol to the library footprint name (footprint selected: %s)", async footprint => {
+    const { chrome, listeners, storage } = createServiceWorkerChrome({
+      storageState: { libraryDownloadRoot: "KiCad/Workspace" }
+    });
+    const cad = createCadData();
+    // The symbol's upstream package label can differ from the footprint's
+    // actual title. The .pretty filename determines KiCad's lookup key.
+    cad.dataStr.head.c_para.package = "Source QFN";
+    loadServiceWorker({ chrome, convertEasyedaCadToKicad,
+      fetchImpl: async () => ({ ok: true, json: async () => ({ result: cad }) }) });
+    const { response } = await sendRuntimeMessage(listeners.runtimeMessage[0], {
+      type: "EXPORT_PART", partContext: { provider: "easyedaLcsc", lookup: { lcscId: "C12345" } },
+      options: { symbol: true, footprint, model3d: false }
+    });
+    expect(response.ok).toBe(true);
+    expect(storage["symbolLibrary:KiCad/Workspace/Workspace.kicad_sym"])
+      .toMatch(/\(property\s+"Footprint"\s+"Workspace:QFN-16_Example"/);
+    if (footprint) expect(chrome.downloads.download.mock.calls[1][0].filename)
+      .toBe("KiCad/Workspace/Workspace.pretty/QFN-16_Example.kicad_mod");
+  });
+
   it.each([...cases,
     { case: "issue14-exact", id: "C3099", mpn: "0451001.MRL" },
     { case: "issue14-unavailable", id: "C3099", mpn: null }
