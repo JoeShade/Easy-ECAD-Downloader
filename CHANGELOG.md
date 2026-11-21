@@ -2,7 +2,7 @@
 
 Notable changes are recorded here in reverse chronological order.
 
-## Unreleased
+## 1.1.1
 
 ### Fixed
 
@@ -22,6 +22,12 @@ Notable changes are recorded here in reverse chronological order.
 - Fixed oversized rectangular footprint outlines by reading the stroke width separately from the layer number.
 - Fixed missing polarity marks, arrows and package fills in footprint exports by converting filled contours, including curved edges, into polygons on the corresponding KiCad layers.
 - Fixed incorrect manufacturer part numbers on Farnell, element14 and Newark pages by matching the distributor order code to the product record and checking fallback image captions against the product URL.
+- Corrected the Firefox add-on ID to `easyeda-downloader@joeshade.local` for updates to the existing AMO listing. Packaging checks this ID.
+
+### Known limitations
+
+- The exported WRL model for LCSC resistor C106225 appeared to the left of both footprint pads in KiCad. The source of the offset is still under investigation.
+- Chrome follows intermediate SamacSys redirects before the extension can check their destinations. The extension checks the initial and final URLs. See [the redirect limitation](docs/deviations.md).
 
 ## 1.1.0
 
@@ -40,7 +46,6 @@ Notable changes are recorded here in reverse chronological order.
 
 ### Fixed
 
-- Corrected the Firefox add-on ID to `easyeda-downloader@joeshade.local` for updates to the existing AMO listing; packaging rejects missing or different IDs.
 - Fixed issue #18: read LCSC manufacturer part numbers from plain product-summary tables anchored by their own complete LCSC catalogue ID, excluding hidden, nested, recommendation and unrelated-product fields.
 - Fixed issue #15: preserve internal hyphens in Farnell, element14 and Newark manufacturer names and part numbers when reading product descriptions; malformed percent escapes in product paths now allow other metadata fallbacks.
 - Preserved non-plated footprint holes, normalized custom-pad whitespace, kept independent symbol path subpaths separate, and accepted SVG signed/exponent numeric syntax.

@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This document describes the implemented design of Easy ECAD Downloader 1.1.0. Known limitations are recorded below and in [docs/deviations.md](docs/deviations.md).
+This document describes the implemented design of Easy ECAD Downloader 1.1.1. Known limitations are recorded below and in [docs/deviations.md](docs/deviations.md).
 
 The extension supports three provider flows:
 
