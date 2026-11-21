@@ -59,9 +59,9 @@ function createEasyedaAdapter(deps) {
       return buildEasyedaPreviewResponse(fetchImpl, partContext);
     },
 
-    async exportPart(partContext, options = {}) {
+    async exportPart(partContext, options, settings) {
       const lcscId = ensureEasyedaLcscId(partContext);
-      const exportContext = await createExportContext(chromeApi);
+      const exportContext = createExportContext(settings);
       const resolvedOptions = resolveExportOptions(options);
 
       let downloadCount = 0;

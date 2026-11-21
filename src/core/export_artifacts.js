@@ -7,8 +7,7 @@
 
 import {
   buildLibraryPaths,
-  DEFAULT_LIBRARY_DOWNLOAD_ROOT,
-  loadSettings
+  DEFAULT_LIBRARY_DOWNLOAD_ROOT
 } from "./settings.js";
 import {
   extractSymbolBlock,
@@ -59,8 +58,7 @@ function resolveExportOptions(options = {}) {
   return resolvedOptions;
 }
 
-async function createExportContext(chromeApi) {
-  const settings = await loadSettings(chromeApi);
+function createExportContext(settings) {
   const libraryPaths = buildLibraryPaths(settings.libraryDownloadRoot);
 
   return {

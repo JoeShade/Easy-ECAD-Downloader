@@ -346,7 +346,7 @@ On Farnell-family sites the SamacSys link supplies the lookup identity when pres
 
 - The popup stays focused on detection, previews, export selection, and opening the dedicated settings page.
 - The settings page owns persistent controls for download layout, Firefox relay configuration, and optional SamacSys auth values.
-- The settings page uses explicit `Save` and `Discard` actions rather than writing every field edit immediately.
+- The settings page uses explicit `Save` and `Discard` actions. A failed rollback locks the form until reload establishes the persisted values. The router passes one settings snapshot through gating and execution for each preview or export.
 - The settings page hides the advanced Firefox settings menu when opened in Chrome.
 - `chrome.storage.local` stores ordinary extension settings:
   - `downloadIndividually`
