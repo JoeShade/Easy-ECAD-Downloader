@@ -6,6 +6,30 @@
 
 import { parseSvgPath, symbolFillType, toBool, toNumber } from "./shared.js";
 
+// EasyEDA can put a catalogue listing in any of its three document fields.
+// The symbol and download use the same first usable link. Recognize product
+// pages by host and route so HTML manuals and extensionless viewers still work.
+function findEasyedaDatasheetUrl(cadData) {
+  const candidates = [
+    cadData?.packageDetail?.dataStr?.head?.c_para?.link,
+    cadData?.dataStr?.head?.c_para?.link,
+    cadData?.lcsc?.url
+  ];
+  for (const value of candidates) {
+    const raw = String(value || "").trim();
+    if (!raw) continue;
+    let url;
+    try { url = new URL(raw.startsWith("//") ? "https:" + raw : raw); }
+    catch { continue; }
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password) continue;
+    const host = url.hostname.toLowerCase();
+    if (host === "item.szlcsc.com" && /^\/\d+\.html\/?$/i.test(url.pathname)) continue;
+    if (/^(www\.)?lcsc\.com$/.test(host) && /^\/product-detail\/[^/]+\.html\/?$/i.test(url.pathname)) continue;
+    return url;
+  }
+  return null;
+}
+
 // EasyEDA separates fields with '~' and groups pin sub-records with '^^'. Keep
 // these positional wire-format details here; emitters receive named fields and
 // the source origin recorded in bbox for their later coordinate conversion.
@@ -23,7 +47,7 @@ function parseEasyedaSymbol(cadData) {
       prefix: String(info.pre || "").replace("?", ""),
       package: info.package || "",
       manufacturer: info.BOM_Manufacturer || "",
-      datasheet: lcsc.url || "",
+      datasheet: findEasyedaDatasheetUrl(cadData)?.href || "",
       lcscId: lcsc.number || "",
       jlcId: info["BOM_JLCPCB Part Class"] || ""
     },
@@ -146,7 +170,7 @@ function parseEasyedaSymbol(cadData) {
   return symbol;
 }
 
-export { parseEasyedaSymbol };
+export { findEasyedaDatasheetUrl, parseEasyedaSymbol };
 
 /*
 ######################################################################################################################

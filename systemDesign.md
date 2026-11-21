@@ -44,7 +44,7 @@ Developer-only Chrome/KiCad automation lives under `tests/headless-qa/`; real Fi
 - The content script returns a generic part context, not a provider-specific ad hoc message shape.
 - EasyEDA previews are generated locally from CAD payload primitives.
 - SamacSys distributor previews come from SamacSys JSON preview endpoints and are displayed as PNG data URLs.
-- EasyEDA datasheet availability comes from URLs exposed by the upstream payload.
+- EasyEDA previews, downloads and symbol properties use the first eligible HTTP(S) datasheet link with empty URL credentials. The resolver skips known LCSC catalogue-product routes, accepts document viewers and HTML manuals, and resolves scheme-relative links over HTTPS.
 - SamacSys distributor datasheet export is currently unsupported.
 - SamacSys distributor preview and export work directly in Chrome.
 - Firefox SamacSys support is opt-in and depends on a user-managed relay URL stored by the extension settings page.

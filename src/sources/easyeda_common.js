@@ -5,12 +5,11 @@
  */
 
 import {
-  makeBase64DataUrl,
   makeSvgDataUrl,
-  normalizeUrl,
   sanitizeFilenamePart
 } from "../core/preview_data.js";
 import { footprintRegionPath, parseFootprintRectangle } from "../kicad/easyeda_footprint_parser.js";
+import { findEasyedaDatasheetUrl } from "../kicad/easyeda_symbol_parser.js";
 import { padDrillSize, symbolFillType, toNumber } from "../kicad/shared.js";
 
 const EASYEDA_API_ENDPOINT =
@@ -318,27 +317,9 @@ function find3dModelInfo(packageDetail) {
 }
 
 function getDatasheetInfo(cadData, lcscId) {
-  const rawUrl = [
-    cadData?.packageDetail?.dataStr?.head?.c_para?.link,
-    cadData?.dataStr?.head?.c_para?.link,
-    cadData?.lcsc?.url
-  ].find((value) => String(value || "").trim());
-  const url = normalizeUrl(rawUrl);
-  if (!url) {
-    return { url: "", filename: "" };
-  }
-
-  let extension = ".pdf";
-  try {
-    const pathname = new URL(url).pathname;
-    const lastSegment = pathname.split("/").pop() || "";
-    const match = lastSegment.match(/(\.[a-zA-Z0-9]{1,8})$/);
-    if (match) {
-      extension = match[1];
-    }
-  } catch (error) {
-    console.warn("Failed to parse datasheet URL:", error);
-  }
+  const url = findEasyedaDatasheetUrl(cadData);
+  if (!url) return { url: "", filename: "" };
+  const extension = url.pathname.match(/(\.[a-zA-Z0-9]{1,8})$/)?.[1] || ".pdf";
 
   const baseName = sanitizeFilenamePart(
     cadData?.packageDetail?.title ||
@@ -349,7 +330,7 @@ function getDatasheetInfo(cadData, lcscId) {
   );
 
   return {
-    url,
+    url: url.href,
     filename: `${baseName}-datasheet${extension}`
   };
 }
@@ -385,8 +366,7 @@ export {
   ensureEasyedaLcscId,
   fetchCadData,
   find3dModelInfo,
-  getDatasheetInfo,
-  makeBase64DataUrl
+  getDatasheetInfo
 };
 
 /*

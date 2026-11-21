@@ -10,17 +10,6 @@ function sanitizeFilenamePart(value, fallback = "datasheet") {
   return sanitized || fallback;
 }
 
-function normalizeUrl(value) {
-  const url = String(value || "").trim();
-  if (!url) {
-    return "";
-  }
-  if (url.startsWith("//")) {
-    return `https:${url}`;
-  }
-  return url;
-}
-
 // btoa consumes one byte per character. Bounded chunks avoid the JavaScript
 // argument-count limit while preserving the original binary bytes.
 function arrayBufferToBase64(buffer) {
@@ -54,7 +43,6 @@ function makeBase64DataUrl(mimeType, base64Text) {
 
 export {
   sanitizeFilenamePart,
-  normalizeUrl,
   arrayBufferToBase64,
   textToBase64,
   makeSvgDataUrl,
